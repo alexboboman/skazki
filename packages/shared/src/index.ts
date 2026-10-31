@@ -248,13 +248,15 @@ export interface EntitlementsResponse {
     activeArcs: number;
     activeArcsUsed?: number;
     imageQuality: "standard" | "hd";
+    /** Neural narration (POST /v1/stories/:id/audio); the system voice on the device needs no plan. */
+    premiumVoice?: boolean;
   };
   quotas: QuotaStatus[];
 }
 
 /**
  * HTTP 402 body: the client should show the paywall. `feature` says what was blocked:
- * `profiles`, `story_arc`, `classic_story` or `quick_story`. For `story_arc` with `limit_reached` the user
+ * `profiles`, `story_arc`, `classic_story`, `quick_story` or `premium_voice`. For `story_arc` with `limit_reached` the user
  * already has `limit` unfinished series.
  */
 export interface PaywallErrorResponse {

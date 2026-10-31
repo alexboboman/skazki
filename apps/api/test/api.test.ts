@@ -21,6 +21,9 @@ const { MockImageGenerator } = await import("../src/services/imageGenerator.js")
 const { LocalMediaStore } = await import("../src/services/mediaStore.js");
 const { periodWindow, trialDaysFromEnv } = await import("../src/services/entitlements.js");
 const { parseVerdict } = await import("../src/services/safetyChecker.js");
+const { narrationText, splitForSpeech } = await import("../src/services/narrationText.js");
+const { stripId3 } = await import("../src/services/narrationService.js");
+const { createSpeechGenerator, PhygitalSpeechGenerator } = await import("../src/services/speechGenerator.js");
 const { parseMediaMarkers } = await import("../src/services/mediaPrompts.js");
 
 const RAW_STORY =
@@ -82,6 +85,22 @@ const recordingImages = {
   }
 };
 
+// A fake narrator: records the text it was asked to voice and returns a small "file" per call.
+const speech = { calls: [] as string[], fails: false, maxChars: 4000, delayMs: 0 };
+
+const speechGenerator = {
+  provider: "fake-voice",
+  get maxChars() {
+    return speech.maxChars;
+  },
+  async generateSpeech(input: { text: string }) {
+    speech.calls.push(input.text);
+    if (speech.delayMs) await new Promise((resolve) => setTimeout(resolve, speech.delayMs));
+    if (speech.fails) throw new Error("voice provider down");
+    return { bytes: Buffer.from(`[audio ${speech.calls.length}]`), contentType: "audio/mpeg", estimatedCostUsd: 0 };
+  }
+};
+
 let app: ReturnType<typeof createApp>;
 let db: Awaited<ReturnType<typeof createDb>>;
 let userCounter = 0;
@@ -93,7 +112,8 @@ before(async () => {
     mediaStore: new LocalMediaStore(await mkdtemp(path.join(os.tmpdir(), "skazochnik-media-"))),
     imageGenerator: recordingImages,
     textGenerator,
-    safetyChecker
+    safetyChecker,
+    speechGenerator
   });
 });
 
@@ -1031,5 +1051,288 @@ describe("series", () => {
     assert.equal(parsed.seed, "a fox");
     assert.equal(parsed.summary, "Лис нашёл звезду.");
     assert.equal(parsed.text, "Абзац.");
+  });
+});
+
+describe("premium narration", () => {
+  const reset = () => {
+    resetBehaviour();
+    speech.calls.length = 0;
+    speech.fails = false;
+    speech.maxChars = 4000;
+    speech.delayMs = 0;
+  };
+
+  async function savedStory(token: string) {
+    return (await call("POST", "/v1/stories/generate", token, { ...inlineBody("quick_story"), mediaOptions: { requestedTypes: ["image"] } })).json;
+  }
+
+  const narrate = (token: string, storyId: string, body: object = {}) => call("POST", `/v1/stories/${storyId}/audio`, token, body);
+
+  test("text for the narrator: name, paragraphs, moral and closing; a series part announces its number", () => {
+    assert.equal(
+      narrationText({ title: "Лиса", text: "Раз.\n\nДва.", moral: "Дружба.", closing: "Спи." }),
+      "Лиса.\n\nРаз.\n\nДва.\n\nМораль сказки. Дружба.\n\nСпи."
+    );
+    assert.equal(narrationText({ title: "Огоньки", text: "Раз.", partNumber: 2 }), "Часть 2. Огоньки.\n\nРаз.");
+  });
+
+  test("long text is split on paragraphs, then sentences, within the limit", () => {
+    const text = ["Первый абзац тут.", "Второй абзац тут.", "Третий абзац тут."].join("\n\n");
+    assert.deepEqual(splitForSpeech(text, 40), ["Первый абзац тут.\n\nВторой абзац тут.", "Третий абзац тут."]);
+    assert.deepEqual(splitForSpeech("Коротко.", 100), ["Коротко."]);
+    assert.deepEqual(splitForSpeech("", 100), []);
+
+    const long = "Раз. Два три. Четыре пять шесть. Семь.";
+    const pieces = splitForSpeech(long, 20);
+    assert.ok(pieces.length > 1 && pieces.every((piece) => piece.length <= 20));
+    assert.equal(pieces.join(" ").replace(/\s+/g, " "), long);
+  });
+
+  test("an ID3 tag is cut from the chunks that are glued after the first", () => {
+    const tag = Buffer.concat([Buffer.from("ID3"), Buffer.from([4, 0, 0, 0, 0, 0, 3]), Buffer.from("xyz")]);
+    assert.equal(stripId3(Buffer.concat([tag, Buffer.from("AUDIO")])).toString(), "AUDIO");
+    assert.equal(stripId3(Buffer.from("AUDIO")).toString(), "AUDIO");
+  });
+
+  test("premium narration is a Family+ feature", async () => {
+    reset();
+    const story = await savedStory((await newUser("family_plus")).token);
+    for (const tier of ["free", "family"] as const) {
+      const user = await newUser(tier);
+      const mine = await savedStory(user.token);
+      const blocked = await narrate(user.token, mine.storyId);
+      assert.equal(blocked.status, 402);
+      assert.equal(blocked.json.error.code, "upgrade_required");
+      assert.equal(blocked.json.error.feature, "premium_voice");
+    }
+    assert.equal(speech.calls.length, 0);
+    assert.ok(story.storyId);
+
+    const free = await newUser("free");
+    assert.equal((await call("GET", "/v1/entitlements", free.token)).json.limits.premiumVoice, false);
+    const plus = await newUser("family_plus");
+    assert.equal((await call("GET", "/v1/entitlements", plus.token)).json.limits.premiumVoice, true);
+  });
+
+  test("a part is voiced once, stored and attached to the story without becoming its cover", async () => {
+    reset();
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+
+    const first = await narrate(user.token, story.storyId);
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    assert.equal(first.json.type, "audio");
+    assert.equal(first.json.contentType, "audio/mpeg");
+    assert.equal(first.json.provider, "fake-voice");
+    assert.match(first.json.url, /^\/v1\/media\/[0-9a-f-]{36}\.mp3$/);
+    assert.match(speech.calls[0], /^Саша и дракончик\.\n\nЖил-был Саша\./);
+    assert.match(speech.calls[0], /Мораль сказки\. Дружба делает мир теплее\.\n\nСпи сладко\.$/);
+    assert.ok(!speech.calls[0].includes("[IMAGE"));
+
+    const file = await app.request(first.json.url);
+    assert.equal(file.status, 200);
+    assert.equal(file.headers.get("content-type"), "audio/mpeg");
+    assert.equal(await file.text(), "[audio 1]");
+
+    const again = await narrate(user.token, story.storyId);
+    assert.equal(again.json.id, first.json.id);
+    assert.equal(speech.calls.length, 1, "the second request is served from the stored file");
+
+    const stored = (await call("GET", `/v1/stories/${story.storyId}`, user.token)).json;
+    assert.deepEqual(stored.parts[0].media.map((m: any) => m.type).sort(), ["audio", "image", "image"]);
+    assert.ok(stored.coverImageUrl.endsWith(".svg"), "the cover is still a picture");
+    const listed = (await call("GET", "/v1/stories", user.token)).json.stories[0];
+    assert.ok(listed.coverImageUrl.endsWith(".svg"));
+  });
+
+  test("a long story is voiced in pieces that are joined into one file", async () => {
+    reset();
+    speech.maxChars = 30;
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+    const audio = await narrate(user.token, story.storyId);
+
+    assert.ok(speech.calls.length > 1);
+    assert.ok(speech.calls.every((piece) => piece.length <= 30));
+    const body = await (await app.request(audio.json.url)).text();
+    assert.equal(body, Array.from({ length: speech.calls.length }, (_, i) => `[audio ${i + 1}]`).join(""));
+  });
+
+  test("simultaneous requests for one part share a single generation", async () => {
+    reset();
+    speech.delayMs = 30;
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+    const results = await Promise.all([narrate(user.token, story.storyId), narrate(user.token, story.storyId), narrate(user.token, story.storyId)]);
+
+    assert.deepEqual(results.map((r) => r.status), [200, 200, 200]);
+    assert.equal(new Set(results.map((r) => r.json.id)).size, 1);
+    assert.equal(speech.calls.length, 1);
+  });
+
+  test("each part of a series has its own narration, and the moral is read in the last part only", async () => {
+    reset();
+    const user = await newUser("family_plus");
+    const first = (await call("POST", "/v1/stories/generate", user.token, await seriesBody(user.token, 3))).json;
+    await call("POST", `/v1/stories/${first.storyId}/parts`, user.token, {});
+    await call("POST", `/v1/stories/${first.storyId}/parts`, user.token, {});
+
+    const one = await narrate(user.token, first.storyId, { part: 1 });
+    const two = await narrate(user.token, first.storyId, { part: 2 });
+    const three = await narrate(user.token, first.storyId, { part: 3 });
+
+    assert.equal(new Set([one.json.id, two.json.id, three.json.id]).size, 3);
+    assert.match(speech.calls[0], /^Часть 1\. Звёздный сериал\./);
+    assert.match(speech.calls[1], /^Часть 2\. Часть 2: огоньки\./);
+    assert.ok(!speech.calls[0].includes("Мораль сказки") && !speech.calls[1].includes("Мораль сказки"));
+    assert.ok(speech.calls[2].includes("Мораль сказки."));
+  });
+
+  test("a slow voice answers 202 first, and the client asks again until the file is ready", async () => {
+    reset();
+    speech.delayMs = 120;
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+    const impatient = createApp({
+      db,
+      mediaStore: new LocalMediaStore(await mkdtemp(path.join(os.tmpdir(), "skazochnik-media-"))),
+      imageGenerator: recordingImages,
+      speechGenerator,
+      narrationWaitMs: 5
+    });
+    const ask = async () => {
+      const res = await impatient.request(`/v1/stories/${story.storyId}/audio`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${user.token}`, "content-type": "application/json" },
+        body: "{}"
+      });
+      return { status: res.status, json: (await res.json()) as any };
+    };
+
+    const first = await ask();
+    assert.equal(first.status, 202);
+    assert.deepEqual(first.json, { status: "processing" });
+    assert.equal((await ask()).status, 202, "asking again does not start a second generation");
+
+    let ready = await ask();
+    for (let i = 0; i < 50 && ready.status === 202; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      ready = await ask();
+    }
+    assert.equal(ready.status, 200);
+    assert.equal(ready.json.type, "audio");
+    assert.equal(speech.calls.length, 1);
+  });
+
+  test("a failure in the background is reported once to the next request, then the part can be retried", async () => {
+    reset();
+    speech.delayMs = 60;
+    speech.fails = true;
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+    const impatient = createApp({
+      db,
+      mediaStore: new LocalMediaStore(await mkdtemp(path.join(os.tmpdir(), "skazochnik-media-"))),
+      imageGenerator: recordingImages,
+      speechGenerator,
+      narrationWaitMs: 5
+    });
+    const ask = async () =>
+      impatient.request(`/v1/stories/${story.storyId}/audio`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${user.token}`, "content-type": "application/json" },
+        body: "{}"
+      });
+
+    assert.equal((await ask()).status, 202);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const failed = await ask();
+    assert.equal(failed.status, 502);
+    assert.equal(((await failed.json()) as any).error.code, "audio_generation_failed");
+
+    speech.fails = false;
+    speech.delayMs = 0;
+    const retried = await ask();
+    assert.equal(retried.status === 200 || retried.status === 202, true);
+  });
+
+  test("bad input, other people's stories, missing parts and a missing voice", async () => {
+    reset();
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+
+    assert.equal((await narrate(user.token, story.storyId, { part: 0 })).status, 400);
+    assert.equal((await narrate(user.token, story.storyId, { part: "1" })).status, 400);
+    assert.equal((await narrate(user.token, story.storyId, { part: 2 })).status, 404);
+    assert.equal((await narrate((await newUser("family_plus")).token, story.storyId)).status, 404);
+    assert.equal((await call("POST", "/v1/stories/not-a-uuid/audio", user.token, {})).status, 404);
+    assert.equal((await call("POST", `/v1/stories/${story.storyId}/audio`, undefined, {})).status, 401);
+
+    const silent = createApp({ db, mediaStore: new LocalMediaStore(await mkdtemp(path.join(os.tmpdir(), "skazochnik-media-"))), imageGenerator: recordingImages });
+    const res = await silent.request(`/v1/stories/${story.storyId}/audio`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${user.token}`, "content-type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(res.status, 503);
+    assert.equal(((await res.json()) as any).error.code, "premium_voice_unavailable");
+  });
+
+  test("a failed voice gives 502 and nothing is stored, so it can be retried", async () => {
+    reset();
+    const user = await newUser("family_plus");
+    const story = await savedStory(user.token);
+
+    speech.fails = true;
+    const failed = await narrate(user.token, story.storyId);
+    assert.equal(failed.status, 502);
+    assert.equal(failed.json.error.code, "audio_generation_failed");
+    const stored = (await call("GET", `/v1/stories/${story.storyId}`, user.token)).json;
+    assert.ok(stored.parts[0].media.every((m: any) => m.type === "image"));
+
+    speech.fails = false;
+    assert.equal((await narrate(user.token, story.storyId)).status, 200);
+  });
+});
+
+describe("Phygital+ speech provider", () => {
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  test("sends text and the reading style to Gemini TTS and downloads the mp3", async () => {
+    const calls: Array<{ url: string; body?: any }> = [];
+    const script = [
+      () => json(200, { task_id: 9 }),
+      () => json(200, { status: "done", outputs: [{ links: ["https://files.example/a.mp3"] }] }),
+      () => new Response(Buffer.from("mp3"), { headers: { "content-type": "audio/mpeg" } })
+    ];
+    const generator = new PhygitalSpeechGenerator({
+      apiKey: "k",
+      pollIntervalMs: 1,
+      fetch: async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        return script.shift()!();
+      }
+    });
+
+    assert.equal(generator.maxChars, 600);
+    const result = await generator.generateSpeech({ text: "Привет." });
+    assert.equal(result.contentType, "audio/mpeg");
+    assert.equal(result.bytes.toString(), "mp3");
+    assert.equal(calls[0].url, "https://dev.phygital.plus/api/models/gemini-tts");
+    assert.equal(calls[0].body.inputs.text, "Привет.");
+    assert.match(calls[0].body.inputs.prompt, /добрая мама/);
+    assert.equal(calls[0].body.params.voice, "Aoede");
+    assert.equal(calls[0].body.params.model, "gemini_2_5_pro_tts");
+    assert.equal(calls[0].body.params.language_code, "ru_RU");
+    assert.equal(calls[0].body.params.audio_encoding, "MP3");
+  });
+
+  test("the factory needs a Phygital+ key and can be switched off", () => {
+    assert.equal(createSpeechGenerator({}), undefined);
+    assert.equal(createSpeechGenerator({ PHYGITAL_API_KEY: "k" })?.provider, "phygital");
+    assert.equal(createSpeechGenerator({ PHYGITAL_API_KEY: "k", TTS_PROVIDER: "none" }), undefined);
+    assert.throws(() => createSpeechGenerator({ TTS_PROVIDER: "phygital" }), /requires PHYGITAL_API_KEY/);
+    assert.throws(() => createSpeechGenerator({ TTS_PROVIDER: "nope" }), /Unknown TTS_PROVIDER/);
   });
 });

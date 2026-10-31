@@ -6,6 +6,7 @@ import { createApp } from "./app.js";
 import { createDb } from "./db/client.js";
 import { AnthropicTextGenerator } from "./services/anthropicTextGenerator.js";
 import { createImageGenerator } from "./services/imageGenerator.js";
+import { createSpeechGenerator } from "./services/speechGenerator.js";
 import { LocalMediaStore } from "./services/mediaStore.js";
 import { MockSafetyChecker, MockTextGenerator } from "./services/mockText.js";
 import { AnthropicSafetyChecker } from "./services/safetyChecker.js";
@@ -21,6 +22,7 @@ const app = createApp({
   db: await createDb(),
   mediaStore: new LocalMediaStore(),
   imageGenerator: createImageGenerator(),
+  speechGenerator: createSpeechGenerator(),
   textGenerator: mockText ? new MockTextGenerator() : apiKey ? new AnthropicTextGenerator(apiKey) : undefined,
   safetyChecker: mockText ? new MockSafetyChecker() : apiKey ? new AnthropicSafetyChecker(apiKey) : undefined
 });

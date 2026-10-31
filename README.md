@@ -160,7 +160,8 @@ Endpoints (all under `/v1`, all except `auth/*` and `media/*` need a bearer toke
 | POST | `/stories/:id/parts` | Write the next part of a series (body: optional `mediaOptions`) |
 | GET | `/stories?profileId=&favorite=` | Library list with `coverImageUrl`, `heroIds`, `world`, `readingMinutes`, `favorite`, `readProgress` |
 | GET, PATCH, DELETE | `/stories/:id` | Full story with parts, media, `moral`, `closing` / update `favorite`, `readProgress` (0 to 1) and `readPart` (marks a part of a series read) / delete |
-| GET | `/media/:fileName` | Generated image files |
+| POST | `/stories/:id/audio` | Premium narration of one part (Family+), body `{ "part": 1 }`: 200 with the audio asset, or 202 `{ "status": "processing" }` while it is being voiced |
+| GET | `/media/:fileName` | Generated image and audio files |
 
 The generate response contains `storyId`, `story` (`title`, `text` as body paragraphs without the heading, `moral`, `closing`, `readingMinutes`), `media[]` (each asset with `url` and `afterParagraph`: the paragraph of `story.text`, split by blank lines, that the image follows), `usage` and `steps`.
 
@@ -173,6 +174,16 @@ A series is a story with `format: story_arc_part` and a row in `story_arcs` (len
 - Limits: a series needs a paid tier (**402** `upgrade_required`, feature `story_arc`); the number of unfinished series is capped (Family 1, Family+ 3; **402** `limit_reached`, feature `story_arc`, `limit`). `GET /entitlements` shows `limits.activeArcs` and `activeArcsUsed`. Parts have no quota of their own. Finishing a series frees its slot.
 - Heroes: a series needs saved profiles (inline `childProfile` is rejected). If its profiles are deleted, the next part answers **409** `heroes_missing`. Two simultaneous requests for the same part: one wins, the other gets **409** `part_conflict`. A failed part (Claude, safety) changes nothing and can be retried.
 - Reading progress: the app sends `PATCH /stories/:id {"readPart": n}` when a part is finished; `readProgress` becomes the share of read parts.
+
+### Premium narration
+
+The app reads stories aloud with the system voice for everyone (on the device, free). Family+ also gets a neural voice: `POST /v1/stories/:id/audio` with `{ "part": n }` (default 1; the part number of a series).
+
+- Voice: Gemini TTS through Phygital+ (`gemini-tts`, engine `gemini_2_5_pro_tts`, voice `Aoede`, `ru_RU`), told to "read like a kind mother a bedtime story". Picked by ear from five samples; override with `PHYGITAL_TTS_*` (see `.env.example`), `TTS_PROVIDER=none` switches it off (the endpoint then answers 503 `premium_voice_unavailable`).
+- Text: the name (with "Часть N." for a series part), the paragraphs, the moral (a series gives it with its last part) and the good-night line; illustrations and markers are not read.
+- Time: voicing takes about 8 seconds per 100 characters, so the text is cut into pieces of at most 600 characters on paragraph borders and the pieces are voiced side by side (6 at a time), then joined into one MP3. A 3.6-minute part took 76 seconds. That is too long for one request, so the endpoint waits 2.5 s and otherwise answers **202** `{ "status": "processing" }`; the client asks again about every 5 s until it gets **200** with the asset (`type: "audio"`, `url`, `contentType: "audio/mpeg"`). Asking again never starts a second generation. A failed attempt is reported (**502** `audio_generation_failed`) to the next request, then the part can be retried.
+- Stored once: the file is saved like a picture and attached to the part (`media_assets`, `type = audio`), so it also shows up in `GET /stories/:id` under `parts[].media`, and every device gets the same file. Audio is never used as a cover.
+- Plan: Family+ only (**402** `upgrade_required`, feature `premium_voice`); `GET /entitlements` shows `limits.premiumVoice`. The cost per minute at Phygital+ is not known yet, so it is not counted in `usage`.
 
 ## Verify
 

@@ -12,6 +12,7 @@ import type {
 } from "../../../../packages/shared/src/index.js";
 import type { Db } from "../db/client.js";
 import { mediaAssets, stories, storyArcs, storyHeroes, storyParts } from "../db/schema.js";
+import { narrationText } from "./narrationText.js";
 
 type StoryRow = typeof stories.$inferSelect;
 type MediaRow = typeof mediaAssets.$inferSelect;
@@ -156,6 +157,58 @@ export class StoryService {
     }
   }
 
+  /** The text of one part as a narrator reads it, and its narration file if there is one already. */
+  async narrationSource(
+    userId: string,
+    storyId: string,
+    partNumber: number
+  ): Promise<{ partId: string; text: string; audio?: MediaAsset } | undefined> {
+    const [row] = await this.db
+      .select({ story: stories, part: storyParts, arc: storyArcs })
+      .from(stories)
+      .innerJoin(storyParts, eq(storyParts.storyId, stories.id))
+      .leftJoin(storyArcs, eq(storyArcs.storyId, stories.id))
+      .where(and(eq(stories.id, storyId), eq(stories.userId, userId), eq(storyParts.partNumber, partNumber)))
+      .limit(1);
+
+    if (!row) {
+      return undefined;
+    }
+
+    const isSeries = row.arc !== null;
+    const isLast = isSeries && partNumber === row.arc?.arcLength;
+    const [audio] = await this.db
+      .select()
+      .from(mediaAssets)
+      .where(and(eq(mediaAssets.storyPartId, row.part.id), eq(mediaAssets.type, "audio")))
+      .limit(1);
+
+    return {
+      partId: row.part.id,
+      text: narrationText({
+        title: (isSeries ? row.part.title : row.story.title) ?? undefined,
+        text: row.part.textContent,
+        // A series gives its moral with the last part only.
+        moral: (isSeries ? (isLast ? row.story.moral : undefined) : row.story.moral) ?? undefined,
+        closing: (row.part.closing ?? row.story.closing) ?? undefined,
+        partNumber: isSeries ? partNumber : undefined
+      }),
+      audio: audio ? toMediaAsset(audio) : undefined
+    };
+  }
+
+  async addAudio(partId: string, asset: MediaAsset): Promise<void> {
+    await this.db.insert(mediaAssets).values({
+      id: asset.id,
+      storyPartId: partId,
+      type: "audio",
+      variant: asset.variant,
+      provider: asset.provider,
+      url: asset.url,
+      contentType: asset.contentType
+    });
+  }
+
   /** Series of this user that are not finished yet. */
   async countActiveArcs(userId: string): Promise<number> {
     const [row] = await this.db
@@ -200,7 +253,7 @@ export class StoryService {
       .select({ storyId: storyParts.storyId, url: mediaAssets.url })
       .from(mediaAssets)
       .innerJoin(storyParts, eq(mediaAssets.storyPartId, storyParts.id))
-      .where(and(inArray(storyParts.storyId, ids), eq(storyParts.partNumber, 1)))
+      .where(and(inArray(storyParts.storyId, ids), eq(storyParts.partNumber, 1), eq(mediaAssets.type, "image")))
       .orderBy(asc(mediaAssets.afterParagraph), asc(mediaAssets.createdAt));
 
     const coverByStory = new Map<string, string>();
@@ -242,7 +295,7 @@ export class StoryService {
     const arcs = await this.arcInfos([story.id]);
 
     return {
-      ...toSummary(story, heroes.get(story.id) ?? [], media[0]?.url, arcs.get(story.id)),
+      ...toSummary(story, heroes.get(story.id) ?? [], media.find((asset) => asset.type === "image")?.url, arcs.get(story.id)),
       moral: story.moral ?? undefined,
       closing: story.closing ?? undefined,
       totalParts: story.totalParts,

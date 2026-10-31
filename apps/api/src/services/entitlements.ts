@@ -29,6 +29,8 @@ interface TierConfig {
   profiles: number;
   activeArcs: number;
   imageQuality: "standard" | "hd";
+  /** Neural narration voice (the system voice on the device is free for everyone). */
+  premiumVoice: boolean;
   quotas: Record<QuotaFeature, Quota>;
 }
 
@@ -41,18 +43,21 @@ export const TIERS: Record<Tier, TierConfig> = {
     profiles: 1,
     activeArcs: 0,
     imageQuality: "standard",
+    premiumVoice: false,
     quotas: { classic_story: { limit: 1, period: "day" }, quick_story: { limit: 3, period: "week" } }
   },
   family: {
     profiles: 3,
     activeArcs: 1,
     imageQuality: "hd",
+    premiumVoice: false,
     quotas: { classic_story: { limit: 100, period: "month" }, quick_story: { limit: 100, period: "month" } }
   },
   family_plus: {
     profiles: 5,
     activeArcs: 3,
     imageQuality: "hd",
+    premiumVoice: true,
     quotas: { classic_story: { limit: 100, period: "month" }, quick_story: { limit: 100, period: "month" } }
   }
 };
@@ -158,7 +163,8 @@ export class EntitlementService {
         profiles: { limit: config.profiles, used: profilesUsed },
         activeArcs: config.activeArcs,
         activeArcsUsed: activeArcs,
-        imageQuality: config.imageQuality
+        imageQuality: config.imageQuality,
+        premiumVoice: config.premiumVoice
       },
       quotas
     };
@@ -226,6 +232,12 @@ export class EntitlementService {
     }
 
     return activeArcs >= limit ? { ok: false, reason: "limit_reached", feature: "story_arc", tier, limit } : { ok: true };
+  }
+
+  /** Premium narration is a Family+ feature. */
+  async canUsePremiumVoice(userId: string, now = new Date()): Promise<ReserveResult> {
+    const { tier } = await this.resolveTier(userId, now);
+    return TIERS[tier].premiumVoice ? { ok: true } : { ok: false, reason: "upgrade_required", feature: "premium_voice", tier };
   }
 
   async refund(userId: string, reservation: { feature?: QuotaFeature; periodStart?: Date }): Promise<void> {

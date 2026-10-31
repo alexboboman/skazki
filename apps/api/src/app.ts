@@ -19,6 +19,8 @@ import { createAuthService, type AuthEnv } from "./services/auth.js";
 import { EntitlementService, type ReserveResult } from "./services/entitlements.js";
 import { DEFAULT_WORLD, WORLD_PROMPTS, wordsForMinutes } from "./services/catalog.js";
 import type { ImageGenerator } from "./services/imageGenerator.js";
+import { NarrationService } from "./services/narrationService.js";
+import type { SpeechGenerator } from "./services/speechGenerator.js";
 import type { MediaStore } from "./services/mediaStore.js";
 import { ProfileLimitError, ProfileService } from "./services/profileService.js";
 import { PartConflictError, StoryService } from "./services/storyService.js";
@@ -33,9 +35,13 @@ export interface AppDeps {
   /** Absent when ANTHROPIC_API_KEY is not configured. */
   textGenerator?: TextGenerator;
   safetyChecker?: SafetyChecker;
+  /** Absent without a Phygital+ key: premium narration is then unavailable (503). */
+  speechGenerator?: SpeechGenerator;
+  /** How long POST /v1/stories/:id/audio waits for the narration before answering 202 (default 2.5 s). */
+  narrationWaitMs?: number;
 }
 
-type ErrorStatus = 400 | 401 | 404 | 409 | 422 | 500 | 502;
+type ErrorStatus = 400 | 401 | 404 | 409 | 422 | 500 | 502 | 503;
 
 export function createApp(deps: AppDeps) {
   const app = new Hono<AuthEnv>();
@@ -43,6 +49,7 @@ export function createApp(deps: AppDeps) {
   const profiles = new ProfileService(deps.db);
   const stories = new StoryService(deps.db);
   const entitlements = new EntitlementService(deps.db);
+  const narration = deps.speechGenerator && new NarrationService(stories, deps.mediaStore, deps.speechGenerator, deps.narrationWaitMs);
 
   function pipelineDeps() {
     return {
@@ -356,6 +363,42 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  /**
+   * Premium narration of one part (Family+). Answers 200 with the audio asset, or 202 `{status: "processing"}`
+   * while it is being voiced (ask again, about every 5 s). Voiced once, then served from the stored file.
+   */
+  app.post("/v1/stories/:id/audio", auth.requireAuth, uuidGuard("story_not_found", "Story not found."), async (c) => {
+    const body = await safeJson(c.req);
+    const part = isRecord(body) && body.part !== undefined ? body.part : 1;
+
+    if (typeof part !== "number" || !Number.isInteger(part) || part < 1) {
+      return errorResponse(c, 400, "invalid_request", "part must be a positive integer.");
+    }
+
+    const userId = c.get("userId");
+    const allowed = await entitlements.canUsePremiumVoice(userId);
+
+    if (!allowed.ok) {
+      return paywallResponse(c, reservationToPaywall(allowed));
+    }
+
+    if (!narration) {
+      return errorResponse(c, 503, "premium_voice_unavailable", "Premium narration is not configured on this server.");
+    }
+
+    try {
+      const result = await narration.request(userId, c.req.param("id"), part);
+
+      if (!result) {
+        return errorResponse(c, 404, "story_not_found", "Story or part not found.");
+      }
+
+      return result.status === "ready" ? c.json(result.audio) : c.json({ status: "processing" }, 202);
+    } catch (error) {
+      return errorResponse(c, 502, "audio_generation_failed", error instanceof Error ? error.message : "Unknown narration error.");
+    }
+  });
+
   app.get("/v1/stories", auth.requireAuth, async (c) => {
     const profileId = c.req.query("profileId");
     const favorite = c.req.query("favorite");
@@ -469,7 +512,8 @@ function reservationToPaywall(result: Extract<ReserveResult, { ok: false }>): Pa
   const tier: Tier = result.tier;
 
   if (result.reason === "upgrade_required") {
-    return { code: "upgrade_required", message: "Story arcs need a paid plan.", feature: result.feature, tier };
+    const message = result.feature === "premium_voice" ? "Premium narration needs the Family+ plan." : "Story arcs need a paid plan.";
+    return { code: "upgrade_required", message, feature: result.feature, tier };
   }
 
   return {

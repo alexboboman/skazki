@@ -44,6 +44,7 @@
 |---|---|---|
 | Генерация текста сказки | **Anthropic Claude** | claude-sonnet-4-6 |
 | Генерация иллюстраций | **Phygital+** | `gemini-image` (async task API); OpenAI gpt-image-1 остаётся запасным провайдером |
+| Озвучка (premium, Family+) | **Phygital+** | `gemini-tts` (Aoede, gemini_2_5_pro_tts), ElevenLabs доступен через тот же API; голос на устройстве — AVSpeechSynthesizer |
 | Резервный генератор изображений | **Flux** (Black Forest Labs) via Replicate | flux-1.1-pro |
 | Аудио/TTS | AVSpeechSynthesizer / ElevenLabs | on-device для базового TTS, cloud voices для premium |
 | Видео (future) | TBD | подключается через VideoGenerator-интерфейс |

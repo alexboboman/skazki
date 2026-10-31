@@ -17,16 +17,22 @@ const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/png": "png",
   "image/jpeg": "jpg",
-  "image/svg+xml": "svg"
+  "image/svg+xml": "svg",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/mp4": "m4a"
 };
 
-const FILE_NAME = /^[0-9a-f-]{36}\.(webp|png|jpg|svg)$/;
+/** Other names the same formats go by. */
+const ALIASES: Record<string, string> = { "audio/mp3": "audio/mpeg", "audio/x-wav": "audio/wav", "audio/wave": "audio/wav", "audio/x-m4a": "audio/mp4" };
+
+const FILE_NAME = /^[0-9a-f-]{36}\.(webp|png|jpg|svg|mp3|wav|m4a)$/;
 
 export class LocalMediaStore implements MediaStore {
   constructor(private readonly dir = process.env.MEDIA_DIR ?? path.resolve("apps/api/.media")) {}
 
   async save(bytes: Buffer, contentType: string): Promise<StoredMedia> {
-    const extension = EXTENSIONS[contentType];
+    const extension = EXTENSIONS[ALIASES[contentType] ?? contentType];
 
     if (!extension) {
       throw new Error(`Unsupported media type: ${contentType}`);
