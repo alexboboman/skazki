@@ -54,10 +54,22 @@ public final class OnboardingModel: ObservableObject {
 
     private let client: APIClient
     private let onFinished: (ChildProfile) -> Void
+    private let startAtProfile: Bool
+    private let onCancel: (() -> Void)?
 
-    public init(client: APIClient, onFinished: @escaping (ChildProfile) -> Void) {
+    /// `startAtProfile` skips the welcome slides (adding another child from the main app);
+    /// then going back from the first step calls `onCancel`.
+    public init(
+        client: APIClient,
+        startAtProfile: Bool = false,
+        onFinished: @escaping (ChildProfile) -> Void,
+        onCancel: (() -> Void)? = nil
+    ) {
         self.client = client
+        self.startAtProfile = startAtProfile
         self.onFinished = onFinished
+        self.onCancel = onCancel
+        if startAtProfile { step = .name }
     }
 
     public func next() {
@@ -66,6 +78,10 @@ public final class OnboardingModel: ObservableObject {
     }
 
     public func back() {
+        if startAtProfile, step == .name {
+            onCancel?()
+            return
+        }
         guard let previous = OnboardingStep(rawValue: step.rawValue - 1) else { return }
         step = previous
     }
@@ -91,6 +107,7 @@ public final class OnboardingModel: ObservableObject {
             onFinished(profile)
         } catch let APIError.paywall(info) {
             paywall = info
+            errorMessage = "На вашем тарифе можно создать не больше \(info.limit ?? 1) профилей. Откройте подписку, чтобы добавить ещё."
         } catch {
             errorMessage = Self.message(for: error)
         }

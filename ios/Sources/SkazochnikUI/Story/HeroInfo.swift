@@ -51,11 +51,12 @@ struct BookCover: View {
     let hero: HeroInfo
     var kicker = "Сказка на ночь"
     var height: CGFloat = 330
+    var heroSize: CGFloat = 132
 
     var body: some View {
         ZStack(alignment: .top) {
             NightLandscape()
-            HeroAvatarView(appearance: hero.appearance, size: 132)
+            HeroAvatarView(appearance: hero.appearance, size: heroSize)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, 30)
             Text(kicker)

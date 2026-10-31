@@ -365,10 +365,22 @@ struct AdaptiveScroll<Content: View>: View {
             if axis == .vertical {
                 content().frame(maxHeight: .infinity, alignment: .top)
             } else {
-                content().frame(maxWidth: .infinity, alignment: .leading).clipped()
+                ClipToProposedWidth { content() }.clipped()
             }
         } else {
             ScrollView(axis) { content() }.scrollIndicators(.hidden)
         }
+    }
+}
+
+/// Lays its child out at its natural width but reports only the proposed width, like a horizontal scroll view would.
+struct ClipToProposedWidth: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let child = subviews.first?.sizeThatFits(.unspecified) ?? .zero
+        return CGSize(width: proposal.width ?? child.width, height: child.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: .unspecified)
     }
 }

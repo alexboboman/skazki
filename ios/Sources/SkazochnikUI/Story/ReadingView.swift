@@ -11,6 +11,9 @@ public struct ReadingView: View {
     var onReachedEnd: () -> Void = {}
     /// Shows a gentle upsell card under the story (onboarding path only).
     var onUpsell: (() -> Void)?
+    /// Heart in the top bar; nil hides it (stories that are not in the library yet).
+    var favorite: Bool?
+    var onToggleFavorite: () -> Void = {}
 
     @AppStorage("readingFontStep") private var fontStep = 1
     @State private var reachedEnd = false
@@ -23,7 +26,9 @@ public struct ReadingView: View {
         mediaURL: @escaping (String) -> URL?,
         onBack: @escaping () -> Void,
         onReachedEnd: @escaping () -> Void = {},
-        onUpsell: (() -> Void)? = nil
+        onUpsell: (() -> Void)? = nil,
+        favorite: Bool? = nil,
+        onToggleFavorite: @escaping () -> Void = {}
     ) {
         self.story = story
         self.hero = hero
@@ -31,6 +36,8 @@ public struct ReadingView: View {
         self.onBack = onBack
         self.onReachedEnd = onReachedEnd
         self.onUpsell = onUpsell
+        self.favorite = favorite
+        self.onToggleFavorite = onToggleFavorite
     }
 
     private var bodySize: CGFloat { Self.fontSizes[min(max(fontStep, 0), Self.fontSizes.count - 1)] }
@@ -114,6 +121,18 @@ public struct ReadingView: View {
                 .font(Theme.sans(13.5))
                 .foregroundStyle(Theme.text2)
                 .frame(maxWidth: .infinity)
+            if let favorite {
+                Button(action: onToggleFavorite) {
+                    Image(systemName: favorite ? "heart.fill" : "heart")
+                        .font(.system(size: 16))
+                        .foregroundStyle(favorite ? Theme.gold : Theme.text2)
+                        .frame(width: 42, height: 42)
+                        .background(Theme.card, in: Circle())
+                        .overlay(Circle().strokeBorder(Theme.border))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(favorite ? "Убрать из любимых" : "В любимые")
+            }
             Button {
                 fontStep = (fontStep + 1) % Self.fontSizes.count
             } label: {

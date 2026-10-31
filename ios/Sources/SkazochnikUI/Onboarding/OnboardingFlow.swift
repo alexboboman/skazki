@@ -5,8 +5,15 @@ import SkazochnikCore
 public struct OnboardingFlow: View {
     @StateObject private var model: OnboardingModel
 
-    public init(client: APIClient, onFinished: @escaping (ChildProfile) -> Void) {
-        _model = StateObject(wrappedValue: OnboardingModel(client: client, onFinished: onFinished))
+    public init(
+        client: APIClient,
+        startAtProfile: Bool = false,
+        onFinished: @escaping (ChildProfile) -> Void,
+        onCancel: (() -> Void)? = nil
+    ) {
+        _model = StateObject(wrappedValue: OnboardingModel(
+            client: client, startAtProfile: startAtProfile, onFinished: onFinished, onCancel: onCancel
+        ))
     }
 
     public var body: some View {
