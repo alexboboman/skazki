@@ -131,7 +131,9 @@ struct FailureView: View {
 
     private var title: String {
         switch failure {
-        case .paywall(let info): info.code == .upgradeRequired ? "Это есть в подписке" : "Бесплатные сказки закончились"
+        case .paywall(let info):
+            info.feature == "story_arc" && info.code == .limitReached ? "Серия уже идёт" :
+                info.code == .upgradeRequired ? "Это есть в подписке" : "Бесплатные сказки закончились"
         case .rejected: "Сказка не получилась"
         case .offline: "Нет связи"
         case .other: "Что-то пошло не так"
@@ -141,8 +143,10 @@ struct FailureView: View {
     private var message: String {
         switch failure {
         case .paywall(let info):
-            info.code == .upgradeRequired
-                ? "Сериалы на несколько вечеров доступны в подписке."
+            info.feature == "story_arc" && info.code == .limitReached
+                ? "Сначала дочитайте начатую серию. Одновременно можно вести \(info.limit ?? 1) — больше серий в тарифе Family+."
+                : info.code == .upgradeRequired
+                ? "Серии на несколько вечеров доступны в подписке."
                 : "Бесплатный лимит исчерпан. \(Self.resetNote(info.resetsAt))Или откройте безлимит."
         case .rejected: "Мы проверяем каждую сказку и не показываем ту, что не подходит ребёнку. Попробуйте ещё раз."
         case .offline: "Проверьте интернет и попробуйте ещё раз."

@@ -7,6 +7,12 @@ import SkazochnikCore
 #if canImport(AppKit)
 import AppKit
 
+/// CreateView with the series switch on (its state is private to the view, so the preview asks the draft in).
+private struct CreateSeriesPreview: View {
+    @ObservedObject var app: AppModel
+    var body: some View { CreateView(app: app, profile: Sample.anya, initialDraft: { $0.formatChoice = 3 }, onClose: {}, onCreate: { _ in }) }
+}
+
 /// Renders the onboarding screens at iPhone size so they can be looked at without a simulator.
 /// Set RENDER_DIR to also write the PNGs to disk.
 @MainActor
@@ -131,6 +137,60 @@ import AppKit
         try render("30-create") { CreateView(app: app, profile: Sample.anya, onClose: {}, onCreate: { _ in }) }
         try render("31-create-one-child") {
             CreateView(app: Sample.appModel(profiles: [Sample.anya]), profile: Sample.anya, onClose: {}, onCreate: { _ in })
+        }
+    }
+
+    // MARK: Series
+
+    private var seriesStory: Story {
+        let json = """
+        {"id":"series1","title":"Аня и звёздная пещера","format":"story_arc_part","world":"forest","heroIds":["k1"],
+         "readingMinutes":4,"favorite":false,"readProgress":0.33,"arc":{"length":5,"partsReady":3,"status":"active"},
+         "createdAt":"2026-10-30T18:00:00Z","totalParts":5,
+         "parts":[
+          {"partNumber":1,"title":"Аня и звёздная пещера","text":"Раз.","closing":"Спи.","read":true,"media":[]},
+          {"partNumber":2,"title":"Огоньки ведут дальше","text":"Два.","closing":"Спи.","read":true,"media":[]},
+          {"partNumber":3,"title":"Река тихих историй","text":"Три.","closing":"Спи.","read":false,"media":[]}]}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try! decoder.decode(Story.self, from: Data(json.utf8))
+    }
+
+    @Test func rendersSeriesScreens() throws {
+        try render("40-series") {
+            SeriesOverview(story: seriesStory, hero: hero, mediaURL: { _ in nil }, loadFailed: false, onClose: {}, onRetry: {}, onRead: { _ in }, onNextPart: {})
+        }
+        var allRead = seriesStory
+        allRead.parts[2].read = true
+        try render("41-series-all-read") {
+            SeriesOverview(story: allRead, hero: hero, mediaURL: { _ in nil }, loadFailed: false, onClose: {}, onRetry: {}, onRead: { _ in }, onNextPart: {})
+        }
+        var done = allRead
+        done.arc = StoryArcInfo(length: 5, partsReady: 5, status: .completed)
+        try render("42-series-completed") {
+            SeriesOverview(story: done, hero: hero, mediaURL: { _ in nil }, loadFailed: false, onClose: {}, onRetry: {}, onRead: { _ in }, onNextPart: {})
+        }
+        try render("43-series-failed") {
+            SeriesOverview(story: nil, hero: hero, mediaURL: { _ in nil }, loadFailed: true, onClose: {}, onRetry: {}, onRead: { _ in }, onNextPart: {})
+        }
+        var part = ReadableStory(story: seriesStory, part: 2)
+        part.closing = "Спи сладко."
+        try render("44-series-reading") {
+            ReadingView(
+                story: part, hero: hero, mediaURL: { _ in nil }, onBack: {},
+                finale: SeriesFinale(title: "Часть 2 из 5 прочитана", message: "Продолжение — в следующий вечер.", buttonTitle: "К серии", action: {})
+            )
+        }
+    }
+
+    @Test func rendersCreateScreenWithASeries() throws {
+        let app = Sample.appModel()
+        try render("32-create-series") {
+            VStack {
+                Text("").frame(height: 0)
+                CreateSeriesPreview(app: app)
+            }
         }
     }
 

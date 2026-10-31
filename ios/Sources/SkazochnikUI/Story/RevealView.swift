@@ -7,6 +7,7 @@ struct RevealView: View {
     let hero: HeroInfo
     var kicker = "Готово · ваша первая сказка"
     var coverURL: URL?
+    var coverKicker = "Сказка на ночь"
     let onRead: () -> Void
 
     var body: some View {
@@ -16,7 +17,7 @@ struct RevealView: View {
                 AdaptiveScroll {
                     VStack(spacing: 0) {
                         Text(kicker).kicker().foregroundStyle(Theme.gold).padding(.top, 8).padding(.bottom, 22)
-                        BookCover(hero: hero, imageURL: coverURL)
+                        BookCover(hero: hero, kicker: coverKicker, imageURL: coverURL)
                         Text(story.title).titleStyle(27).multilineTextAlignment(.center).padding(.top, 22).padding(.bottom, 14)
                         HStack(spacing: 8) {
                             meta("≈ \(story.readingMinutes) мин чтения")

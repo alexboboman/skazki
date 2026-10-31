@@ -37,6 +37,14 @@ struct StoryThumb: View {
     }
 }
 
+extension StorySummary {
+    /// "7 мин" for a story, "Серия · 2 из 7" for a series.
+    var metaLine: String {
+        guard let arc else { return "\(readingMinutes) мин" }
+        return "Серия · \(arc.partsReady) из \(arc.length)"
+    }
+}
+
 /// Child picker pill in the header of "Сегодня".
 struct KidSwitch: View {
     @ObservedObject var app: AppModel

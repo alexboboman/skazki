@@ -142,7 +142,7 @@ struct LibraryView: View {
                     Text(story.title ?? "Сказка на ночь")
                         .font(Theme.serif(15.5)).foregroundStyle(Theme.text)
                         .lineLimit(3).multilineTextAlignment(.leading)
-                    Text("\(story.readingMinutes) мин").captionStyle(12.5)
+                    Text(story.metaLine).captionStyle(12.5)
                 }
                 .padding(.top, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)

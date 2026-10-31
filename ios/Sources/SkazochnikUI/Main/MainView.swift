@@ -6,6 +6,7 @@ import SkazochnikCore
 public struct MainView: View {
     private enum Overlay: Equatable {
         case reading(storyId: String, ReadableStory, HeroInfo)
+        case series(storyId: String)
         case create(ChildProfile)
         case addChild
         case editChild(ChildProfile)
@@ -87,8 +88,12 @@ public struct MainView: View {
             )
             .background(Theme.bg0.ignoresSafeArea())
             .transition(.move(edge: .trailing))
+        case .series(let id):
+            SeriesFlow(app: app, storyId: id) { overlay = nil }
+                .background(Theme.bg0.ignoresSafeArea())
+                .transition(.move(edge: .trailing))
         case .create(let profile):
-            CreateFlow(app: app, profile: profile) { overlay = nil }
+            CreateFlow(app: app, profile: profile, onOpenSeries: { overlay = .series(storyId: $0) }) { overlay = nil }
                 .background(Theme.bg0.ignoresSafeArea())
                 .transition(.move(edge: .bottom))
         case .addChild:
@@ -130,6 +135,11 @@ public struct MainView: View {
     }
 
     private func open(_ summary: StorySummary) {
+        if summary.isSeries {
+            overlay = .series(storyId: summary.id)
+            return
+        }
+
         Task {
             do {
                 let story = try await app.readable(summary)

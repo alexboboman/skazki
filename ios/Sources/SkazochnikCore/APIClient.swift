@@ -121,6 +121,12 @@ public struct APIClient: Sendable {
         try await send("POST", "/v1/stories/generate", body: request)
     }
 
+    /// Writes the next part of a series.
+    public func generateNextPart(storyId: String, mediaOptions: MediaOptions = MediaOptions(imageQuality: .hd)) async throws -> GenerateStoryResponse {
+        struct Body: Encodable { var mediaOptions: MediaOptions }
+        return try await send("POST", "/v1/stories/\(storyId)/parts", body: Body(mediaOptions: mediaOptions))
+    }
+
     public func stories(profileId: String? = nil, favorite: Bool? = nil) async throws -> [StorySummary] {
         struct Envelope: Decodable { var stories: [StorySummary] }
         var query: [URLQueryItem] = []
@@ -134,9 +140,9 @@ public struct APIClient: Sendable {
         try await send("GET", "/v1/stories/\(id)")
     }
 
-    public func updateStory(id: String, favorite: Bool? = nil, readProgress: Double? = nil) async throws -> Story {
-        struct Patch: Encodable { var favorite: Bool?; var readProgress: Double? }
-        return try await send("PATCH", "/v1/stories/\(id)", body: Patch(favorite: favorite, readProgress: readProgress))
+    public func updateStory(id: String, favorite: Bool? = nil, readProgress: Double? = nil, readPart: Int? = nil) async throws -> Story {
+        struct Patch: Encodable { var favorite: Bool?; var readProgress: Double?; var readPart: Int? }
+        return try await send("PATCH", "/v1/stories/\(id)", body: Patch(favorite: favorite, readProgress: readProgress, readPart: readPart))
     }
 
     public func deleteStory(id: String) async throws {

@@ -219,7 +219,7 @@ extension StubbedNetwork {
     }
 }
 
-private extension URLRequest {
+extension URLRequest {
     var bodyData: Data {
         if let httpBody { return httpBody }
         guard let stream = httpBodyStream else { return Data() }

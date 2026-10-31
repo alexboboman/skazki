@@ -155,6 +155,25 @@ public final class AppModel: ObservableObject {
         return ReadableStory(story: loaded.value)
     }
 
+    /// The full story of a series (all parts written so far).
+    func series(id: String) async throws -> Story {
+        try await repository.story(id: id).value
+    }
+
+    /// A part of a series was read to the end.
+    func markPartRead(id: String, part: Int) async {
+        try? await repository.markPartRead(id: id, part: part)
+        if let progress = repository.cachedStories().first(where: { $0.id == id })?.readProgress,
+           let index = stories.firstIndex(where: { $0.id == id }) {
+            stories[index].readProgress = progress
+        }
+    }
+
+    /// The profile whose avatar stands for a story: its first hero, else the active child.
+    func profile(for story: StorySummary) -> ChildProfile? {
+        story.heroIds.first.flatMap { id in profiles.first { $0.id == id } } ?? activeProfile
+    }
+
     /// Called after a new story was generated: pull it into the library and the offline cache.
     public func storyCreated(_ story: ReadableStory) async {
         await refresh()

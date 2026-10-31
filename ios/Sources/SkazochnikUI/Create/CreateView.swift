@@ -2,16 +2,24 @@ import SwiftUI
 import SkazochnikCore
 
 /// «Сочинить»: who the story is for, topic, world and length. Audio mode and voice from the design are
-/// left out: narration is outside v1 (see docs/product/PRD_BedtimeStories.md).
+/// left out: narration lives in the reader.
 struct CreateView: View {
     @ObservedObject var app: AppModel
     @State private var draft: CreateDraft
     let onClose: () -> Void
     let onCreate: (CreateDraft) -> Void
 
-    init(app: AppModel, profile: ChildProfile, onClose: @escaping () -> Void, onCreate: @escaping (CreateDraft) -> Void) {
+    init(
+        app: AppModel,
+        profile: ChildProfile,
+        initialDraft: (inout CreateDraft) -> Void = { _ in },
+        onClose: @escaping () -> Void,
+        onCreate: @escaping (CreateDraft) -> Void
+    ) {
         self.app = app
-        _draft = State(initialValue: CreateDraft(activeProfile: profile))
+        var draft = CreateDraft(activeProfile: profile)
+        initialDraft(&draft)
+        _draft = State(initialValue: draft)
         self.onClose = onClose
         self.onCreate = onCreate
     }
@@ -28,6 +36,7 @@ struct CreateView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     section("Для кого") { kids }
+                    section("Формат") { format }
                     section("Тема") { topic }
                     section("Мир") { worlds }
                     section("Длина") {
@@ -41,7 +50,7 @@ struct CreateView: View {
                 .padding(.horizontal, 26)
             }
 
-            Button { onCreate(draft) } label: { Label("Сочинить сказку", systemImage: "sparkles") }
+            Button { onCreate(draft) } label: { Label(draft.isSeries ? "Начать серию" : "Сочинить сказку", systemImage: "sparkles") }
                 .buttonStyle(.goldPill)
                 .padding(.horizontal, 26)
                 .padding(.top, 24)
@@ -95,6 +104,26 @@ struct CreateView: View {
             }
             if draft.heroIds.count > 1 {
                 Text("\(draft.names(in: app.profiles)) будут героями вместе.").captionStyle()
+            }
+        }
+    }
+
+    private var format: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PillSegments(
+                options: [(0, "Одна сказка"), (CreateDraft.arcLengths[0], "Серия")],
+                selection: Binding(
+                    get: { draft.isSeries ? CreateDraft.arcLengths[0] : 0 },
+                    set: { draft.formatChoice = $0 }
+                )
+            )
+            if draft.isSeries {
+                HStack(spacing: 8) {
+                    ForEach(CreateDraft.arcLengths, id: \.self) { count in
+                        Chip("\(count) \(SeriesOverview.partsWord(count))", selected: draft.arcLength == count) { draft.arcLength = count }
+                    }
+                }
+                Text("Одна часть на вечер. Первую напишем сейчас, каждую следующую — когда захотите продолжить.").captionStyle().fixedSize(horizontal: false, vertical: true)
             }
         }
     }

@@ -13,9 +13,21 @@ struct CreateFlow: View {
 
     @ObservedObject var app: AppModel
     let profile: ChildProfile
+    /// Opens the series screen of a story that was just started as a series.
+    var onOpenSeries: (String) -> Void = { _ in }
     let onClose: () -> Void
 
     @State private var stage: Stage = .form
+
+    private func seriesFinale(for story: ReadableStory) -> SeriesFinale? {
+        guard let id = story.storyId, let number = story.partNumber, let count = story.partCount else { return nil }
+        return SeriesFinale(
+            title: "Часть \(number) из \(count) прочитана",
+            message: "Продолжение — в следующий вечер. Новую часть можно сочинить на экране серии.",
+            buttonTitle: "К серии",
+            action: { onOpenSeries(id) }
+        )
+    }
 
     var body: some View {
         Group {
@@ -40,7 +52,13 @@ struct CreateFlow: View {
                     onClose: { stage = .form }
                 )
             case .reveal(let story, let main):
-                RevealView(story: story, hero: HeroInfo(profile: main), kicker: "Готово · новая сказка", coverURL: story.coverImagePath.flatMap(app.client.mediaURL)) {
+                RevealView(
+                    story: story,
+                    hero: HeroInfo(profile: main),
+                    kicker: story.isSeriesPart ? "Готово · новая серия" : "Готово · новая сказка",
+                    coverURL: story.coverImagePath.flatMap(app.client.mediaURL),
+                    coverKicker: story.partCount.map { "Серия · \($0) \(SeriesOverview.partsWord($0))" } ?? "Сказка на ночь"
+                ) {
                     stage = .reading(story, main)
                 }
             case .reading(let story, let main):
@@ -49,13 +67,19 @@ struct CreateFlow: View {
                     hero: HeroInfo(profile: main),
                     mediaURL: app.client.mediaURL,
                     onBack: onClose,
-                    onReachedEnd: { if let id = story.storyId { Task { await app.markRead(id: id) } } },
+                    onReachedEnd: {
+                        guard let id = story.storyId else { return }
+                        Task {
+                            if let part = story.partNumber { await app.markPartRead(id: id, part: part) } else { await app.markRead(id: id) }
+                        }
+                    },
                     favorite: story.storyId.flatMap { id in app.stories.first { $0.id == id }?.favorite },
                     onToggleFavorite: {
                         if let id = story.storyId, let summary = app.stories.first(where: { $0.id == id }) {
                             Task { await app.toggleFavorite(summary) }
                         }
-                    }
+                    },
+                    finale: seriesFinale(for: story)
                 )
             case .paywall(let info, let main):
                 // Purchasing arrives with StoreKit; both buttons just go back to the form for now.

@@ -44,7 +44,8 @@ export function parseMediaMarkers(raw: string): ParsedStory {
       cues.push({ kind: kind.toUpperCase(), value });
       return "";
     });
-    const clean = stripped.replace(/[ \t]+\n/g, "\n").trim();
+    // A model sometimes puts a markdown rule (---) before the closing markers; it is not story text.
+    const clean = stripped.replace(/[ \t]+\n/g, "\n").trim().replace(/^([-*_]\s*){3,}$/, "");
 
     if (clean && title === undefined && paragraphs.length === 0 && /^#+\s/.test(clean)) {
       title = clean.replace(/^#+\s*/, "").trim();

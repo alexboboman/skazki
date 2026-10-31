@@ -62,14 +62,16 @@ struct BookCover: View {
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, 30)
             if let imageURL {
-                AsyncImage(url: imageURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                            .overlay(alignment: .top) {
-                                LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
-                                    .frame(height: 90)
-                            }
+                // An overlay on a clear view, so the picture never decides the size of the cover.
+                Color.clear.overlay {
+                    AsyncImage(url: imageURL) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
                     }
+                }
+                .clipped()
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 110)
                 }
             }
             Text(kicker)

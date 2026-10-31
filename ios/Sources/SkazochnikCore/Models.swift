@@ -95,6 +95,23 @@ public enum Tier: String, Codable, Sendable {
     case familyPlus = "family_plus"
 }
 
+/// Progress of a series: parts written so far out of the planned length.
+public struct StoryArcInfo: Codable, Equatable, Sendable {
+    public enum Status: String, Codable, Sendable { case active, completed }
+
+    public var length: Int
+    public var partsReady: Int
+    public var status: Status
+
+    public init(length: Int, partsReady: Int, status: Status = .active) {
+        self.length = length
+        self.partsReady = partsReady
+        self.status = status
+    }
+
+    public var isCompleted: Bool { status == .completed }
+}
+
 public struct QuotaStatus: Codable, Equatable, Sendable {
     public var feature: String
     public var period: String
@@ -111,6 +128,7 @@ public struct Entitlements: Codable, Equatable, Sendable {
         }
         public var profiles: Profiles
         public var activeArcs: Int
+        public var activeArcsUsed: Int?
         public var imageQuality: String
     }
 
@@ -153,13 +171,33 @@ public struct StorySummary: Codable, Equatable, Identifiable, Sendable {
     public var readingMinutes: Int
     public var favorite: Bool
     public var readProgress: Double
+    /// Present for a series.
+    public var arc: StoryArcInfo?
     public var createdAt: Date
+
+    public var isSeries: Bool { arc != nil }
 }
 
 public struct StoryPart: Codable, Equatable, Sendable {
     public var partNumber: Int
+    /// Name of the part (series only).
+    public var title: String?
     public var text: String
+    /// Good-night line of the part (series only).
+    public var closing: String?
+    public var read: Bool?
     public var media: [MediaAsset]
+
+    public init(partNumber: Int, title: String? = nil, text: String, closing: String? = nil, read: Bool? = nil, media: [MediaAsset] = []) {
+        self.partNumber = partNumber
+        self.title = title
+        self.text = text
+        self.closing = closing
+        self.read = read
+        self.media = media
+    }
+
+    public var isRead: Bool { read ?? false }
 }
 
 public struct Story: Codable, Equatable, Identifiable, Sendable {
@@ -172,11 +210,14 @@ public struct Story: Codable, Equatable, Identifiable, Sendable {
     public var readingMinutes: Int
     public var favorite: Bool
     public var readProgress: Double
+    public var arc: StoryArcInfo?
     public var createdAt: Date
     public var moral: String?
     public var closing: String?
     public var totalParts: Int
     public var parts: [StoryPart]
+
+    public var isSeries: Bool { arc != nil }
 }
 
 public enum ImageQuality: String, Codable, Sendable {
@@ -201,6 +242,8 @@ public struct GenerateStoryRequest: Codable, Equatable, Sendable {
     public var lengthMinutes: Int?
     public var world: WorldID?
     public var mediaOptions: MediaOptions?
+    /// Parts of the series; required for `.storyArcPart`, which starts a series with its part 1.
+    public var arcLength: Int?
 
     public init(
         profileIds: [String],
@@ -208,7 +251,8 @@ public struct GenerateStoryRequest: Codable, Equatable, Sendable {
         topic: String? = nil,
         lengthMinutes: Int? = nil,
         world: WorldID? = nil,
-        mediaOptions: MediaOptions? = MediaOptions()
+        mediaOptions: MediaOptions? = MediaOptions(),
+        arcLength: Int? = nil
     ) {
         self.profileIds = profileIds
         self.format = format
@@ -216,6 +260,7 @@ public struct GenerateStoryRequest: Codable, Equatable, Sendable {
         self.lengthMinutes = lengthMinutes
         self.world = world
         self.mediaOptions = mediaOptions
+        self.arcLength = arcLength
     }
 }
 
@@ -237,6 +282,9 @@ public struct PipelineStep: Codable, Equatable, Sendable {
 
 public struct GenerateStoryResponse: Codable, Equatable, Sendable {
     public var storyId: String?
+    /// Number of the part this response holds (series only).
+    public var partNumber: Int?
+    public var arc: StoryArcInfo?
     public var story: GeneratedStory
     public var media: [MediaAsset]
     public var steps: [PipelineStep]

@@ -1020,6 +1020,12 @@ describe("series", () => {
     assert.equal((await call("PATCH", `/v1/stories/${first.storyId}`, (await newUser("family")).token, { readPart: 1 })).status, 404);
   });
 
+  test("markdown rules around the markers are not story text", () => {
+    const parsed = parseMediaMarkers("# Т\n\nАбзац.\n\n---\n\n[CLOSING: Спи.]\n\n***");
+    assert.equal(parsed.text, "Абзац.");
+    assert.equal(parsed.closing, "Спи.");
+  });
+
   test("SUMMARY and SEED markers are parsed out of the text", () => {
     const parsed = parseMediaMarkers("# Т\n\nАбзац.\n\n[SEED: a fox]\n[SUMMARY: Лис нашёл звезду.]\n[CLOSING: Спи.]");
     assert.equal(parsed.seed, "a fox");

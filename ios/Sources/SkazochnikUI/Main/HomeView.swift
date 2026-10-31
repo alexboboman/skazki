@@ -111,7 +111,7 @@ struct HomeView: View {
             Text(story.title ?? "Сказка на ночь")
                 .font(Theme.serif(15)).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
                 .padding(.top, 9).padding(.bottom, 4)
-            Text("\(story.readingMinutes) мин · \(StoryDateLabel.label(for: story.createdAt))").captionStyle(12.5)
+            Text("\(story.metaLine) · \(StoryDateLabel.label(for: story.createdAt))").captionStyle(12.5)
         }
         .frame(width: 150, alignment: .leading)
     }

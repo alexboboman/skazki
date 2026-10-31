@@ -1,6 +1,21 @@
 import SwiftUI
 import SkazochnikCore
 
+/// The card at the end of a part of a series.
+public struct SeriesFinale {
+    public var title: String
+    public var message: String
+    public var buttonTitle: String
+    public var action: () -> Void
+
+    public init(title: String, message: String, buttonTitle: String, action: @escaping () -> Void) {
+        self.title = title
+        self.message = message
+        self.buttonTitle = buttonTitle
+        self.action = action
+    }
+}
+
 /// Reading mode: serif text, illustrations between paragraphs, the moral and a closing line.
 public struct ReadingView: View {
     let story: ReadableStory
@@ -14,6 +29,8 @@ public struct ReadingView: View {
     /// Heart in the top bar; nil hides it (stories that are not in the library yet).
     var favorite: Bool?
     var onToggleFavorite: () -> Void = {}
+    /// Card under the closing line of a series part: what comes next and a way back to the series.
+    var finale: SeriesFinale?
 
     @AppStorage("readingFontStep") private var fontStep = 1
     @State private var reachedEnd = false
@@ -28,7 +45,8 @@ public struct ReadingView: View {
         onReachedEnd: @escaping () -> Void = {},
         onUpsell: (() -> Void)? = nil,
         favorite: Bool? = nil,
-        onToggleFavorite: @escaping () -> Void = {}
+        onToggleFavorite: @escaping () -> Void = {},
+        finale: SeriesFinale? = nil
     ) {
         self.story = story
         self.hero = hero
@@ -38,6 +56,7 @@ public struct ReadingView: View {
         self.onUpsell = onUpsell
         self.favorite = favorite
         self.onToggleFavorite = onToggleFavorite
+        self.finale = finale
     }
 
     private var bodySize: CGFloat { Self.fontSizes[min(max(fontStep, 0), Self.fontSizes.count - 1)] }
@@ -48,7 +67,7 @@ public struct ReadingView: View {
             AdaptiveScroll {
                 VStack(spacing: 0) {
                     Text(story.title).titleStyle(30).multilineTextAlignment(.center).padding(.top, 74).padding(.bottom, 6)
-                    Text("\(hero.name) · сказка на ночь").captionStyle().padding(.bottom, 22)
+                    Text(subtitle).captionStyle().multilineTextAlignment(.center).padding(.bottom, 22)
 
                     ForEach(story.blocks) { block in
                         switch block {
@@ -101,6 +120,9 @@ public struct ReadingView: View {
                         }
                     }
 
+                    if let finale {
+                        finaleCard(finale)
+                    }
                     if let onUpsell {
                         upsell(onUpsell)
                     }
@@ -112,6 +134,23 @@ public struct ReadingView: View {
             topBar
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var subtitle: String {
+        guard let number = story.partNumber, let count = story.partCount else { return "\(hero.name) · сказка на ночь" }
+        let series = story.seriesTitle.flatMap { $0 == story.title ? nil : $0 }
+        return ["Часть \(number) из \(count)", series].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func finaleCard(_ finale: SeriesFinale) -> some View {
+        VStack(spacing: 12) {
+            Text(finale.title).titleStyle(21).multilineTextAlignment(.center)
+            Text(finale.message).bodyStyle().multilineTextAlignment(.center)
+            Button(finale.buttonTitle, action: finale.action).buttonStyle(.primaryPill).padding(.top, 6)
+        }
+        .padding(22)
+        .glassCard()
+        .padding(.bottom, 10)
     }
 
     private var topBar: some View {

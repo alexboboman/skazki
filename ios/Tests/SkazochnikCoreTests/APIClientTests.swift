@@ -231,7 +231,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-private extension URLRequest {
+extension URLRequest {
     /// URLSession turns httpBody into a stream before it reaches a URLProtocol.
     var bodyData: Data {
         if let httpBody { return httpBody }

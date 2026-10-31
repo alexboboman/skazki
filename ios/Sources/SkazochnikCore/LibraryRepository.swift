@@ -64,6 +64,17 @@ public struct LibraryRepository: Sendable {
         }
     }
 
+    /// Marks one part of a series as read; the server derives the series progress from it.
+    public func markPartRead(id: String, part: Int) async throws {
+        let updated = try await client.updateStory(id: id, readPart: part)
+        cache.save(updated, key: "story-\(id)")
+        var list = cachedStories()
+        if let index = list.firstIndex(where: { $0.id == id }) {
+            list[index].readProgress = updated.readProgress
+            cache.save(list, key: "stories")
+        }
+    }
+
     public func deleteStory(id: String) async throws {
         try await client.deleteStory(id: id)
         cache.remove(key: "story-\(id)")
