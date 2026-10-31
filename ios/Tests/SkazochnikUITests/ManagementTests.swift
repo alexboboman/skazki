@@ -235,3 +235,13 @@ private extension URLRequest {
         return data
     }
 }
+
+@MainActor @Suite struct OnboardingFinishTitleTests {
+    private let client = Sample.appModel().client
+
+    @Test func theLastButtonDependsOnWhereTheProfileIsMade() {
+        #expect(OnboardingModel(client: client, onFinished: { _ in }).finishTitle == "Создать первую сказку")
+        #expect(OnboardingModel(client: client, startAtProfile: true, onFinished: { _ in }).finishTitle == "Добавить")
+        #expect(OnboardingModel(client: client, editing: Sample.anya, onFinished: { _ in }).finishTitle == "Сохранить")
+    }
+}

@@ -339,7 +339,7 @@ struct WorldStepView: View {
             Button {
                 Task { await model.finish() }
             } label: {
-                if model.isSaving { ProgressView().tint(Color(hex: 0x1A1330)) } else { Text(model.isEditing ? "Сохранить" : "Создать первую сказку") }
+                if model.isSaving { ProgressView().tint(Color(hex: 0x1A1330)) } else { Text(model.finishTitle) }
             }
             .buttonStyle(.primaryPill)
             .disabled(model.isSaving)

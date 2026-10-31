@@ -78,6 +78,12 @@ public final class OnboardingModel: ObservableObject {
     /// True when an existing profile is edited: the last button says «Сохранить» and updates it.
     public var isEditing: Bool { editing != nil }
 
+    /// Text of the last step's button: onboarding ends with the first story, the main app just saves.
+    public var finishTitle: String {
+        if isEditing { return "Сохранить" }
+        return startAtProfile ? "Добавить" : "Создать первую сказку"
+    }
+
     /// `startAtProfile` skips the welcome slides (adding another child from the main app);
     /// then going back from the first step calls `onCancel`.
     public init(
