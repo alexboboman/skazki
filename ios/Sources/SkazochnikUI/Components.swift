@@ -109,14 +109,15 @@ public extension View {
             .foregroundStyle(Theme.text)
             .lineSpacing(2)
             .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     func titleStyle(_ size: CGFloat = 27) -> some View {
-        font(Theme.serif(size)).foregroundStyle(Theme.text).lineSpacing(2)
+        font(Theme.serif(size)).foregroundStyle(Theme.text).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
     }
 
     func bodyStyle(_ size: CGFloat = 16.5) -> some View {
-        font(Theme.sans(size)).foregroundStyle(Theme.text2).lineSpacing(4)
+        font(Theme.sans(size)).foregroundStyle(Theme.text2).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
     }
 
     func captionStyle(_ size: CGFloat = 13.5) -> some View {

@@ -286,8 +286,8 @@ Claude должен возвращать структурированные ма
 - [ ] Backend: StoreKit 2 webhook integration + App Store Server Notifications v2
 - [ ] Backend: Analytics Service для server-side событий
 - [x] iOS: Онбординг + создание профиля ребёнка — экраны и API-клиент в `ios/`, без запуска в симуляторе (нет Xcode на dev-машине)
-- [ ] iOS: Экран генерации сказки (Quick Story)
-- [ ] iOS: Reading Mode (текст + иллюстрации)
+- [x] iOS: Экран генерации сказки (Quick Story) — экран «Создаём сказку» и путь первой сказки; экран «Сочинить» (тема, длина, мир, герои) ещё впереди
+- [x] iOS: Reading Mode (текст + иллюстрации) — мораль, финальная фраза, размер текста; тёмный/светлый режим по времени суток и закладка впереди
 - [ ] iOS: Библиотека историй
 - [ ] iOS: Пейволл + подписка
 - [ ] iOS: Analytics SDK + AppsFlyer + ATT prompt timing

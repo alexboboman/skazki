@@ -248,3 +248,49 @@ private extension URLRequest {
         return data
     }
 }
+
+@Suite struct ReadableStoryTests {
+    private func asset(_ id: String, after: Int) -> MediaAsset {
+        MediaAsset(id: id, type: "image", variant: "standard", provider: "mock", url: "/v1/media/\(id).webp", contentType: "image/webp", prompt: "", afterParagraph: after)
+    }
+
+    @Test func placesIllustrationsAfterTheirParagraphs() {
+        let story = ReadableStory(
+            title: "Т", text: "Раз.\n\nДва.\n\nТри.",
+            media: [asset("a", after: 1), asset("b", after: 2)], readingMinutes: 1
+        )
+        #expect(story.blocks.map(\.id) == ["p1", "ma", "p2", "mb", "p3"])
+        #expect(story.paragraphs == ["Раз.", "Два.", "Три."])
+        #expect(story.illustrationCount == 2)
+    }
+
+    @Test func imagesPastTheEndGoToTheEnd() {
+        let story = ReadableStory(title: "Т", text: "Раз.\n\nДва.", media: [asset("x", after: 9)], readingMinutes: 1)
+        #expect(story.blocks.map(\.id) == ["p1", "p2", "mx"])
+    }
+
+    @Test func ignoresBlankParagraphs() {
+        let story = ReadableStory(title: "Т", text: "\n\nРаз.\n\n  \n\nДва.\n", media: [], readingMinutes: 1)
+        #expect(story.paragraphs == ["Раз.", "Два."])
+    }
+
+    @Test func buildsFromTheRealGenerateResponse() throws {
+        let url = try #require(Bundle.module.url(forResource: "generate", withExtension: "json", subdirectory: "Fixtures"))
+        let response = try APIClient.decoder.decode(GenerateStoryResponse.self, from: Data(contentsOf: url))
+        let story = ReadableStory(response: response)
+        #expect(story.title == "Саша и дракончик")
+        #expect(story.storyId == response.storyId)
+        #expect(story.moral == "Дружба делает мир теплее.")
+        #expect(story.blocks.map(\.id).filter { $0.hasPrefix("m") }.count == 2)
+        #expect(story.blocks.first?.id == "p1")
+    }
+
+    @Test func buildsFromASavedStory() throws {
+        let url = try #require(Bundle.module.url(forResource: "story", withExtension: "json", subdirectory: "Fixtures"))
+        let saved = try APIClient.decoder.decode(Story.self, from: Data(contentsOf: url))
+        let story = ReadableStory(story: saved)
+        #expect(story.storyId == saved.id)
+        #expect(story.closing == "Спи сладко.")
+        #expect(story.illustrationCount == 2)
+    }
+}

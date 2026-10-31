@@ -69,5 +69,40 @@ import AppKit
             }
         }
     }
+
+    // MARK: Story flow
+
+    private let hero = HeroInfo(name: "Аня", age: 5, appearance: Appearance(skin: 1, hair: 3, hairStyle: .long, outfit: 0))
+
+    private let story = ReadableStory(
+        storyId: "s1",
+        title: "Аня и звёздная пещера",
+        text: """
+        Когда над миром зажглись первые звёзды, Аня услышала тихий шёпот ветра. «Идём, — позвал он, — я покажу тебе самое волшебное место».
+
+        Рядом семенил маленький друг — дракончик Рекс, чешуя которого блестела, словно изумруды. Вместе они прошли мимо спящих цветов.
+
+        Внутри потолок мерцал тысячами огоньков. «Это светлячки, — прошептал Рекс».
+        """,
+        media: [
+            MediaAsset(id: "a", type: "image", variant: "standard", provider: "mock", url: "/v1/media/a.svg", contentType: "image/svg+xml", prompt: "", afterParagraph: 2)
+        ],
+        moral: "Даже когда мы отдыхаем, жизнь остаётся волшебной.",
+        closing: "Спи сладко. Пусть тебе приснятся звёзды и добрые драконы…",
+        readingMinutes: 5
+    )
+
+    private func generationModel() -> StoryGenerationModel {
+        let client = APIClient(baseURL: URL(string: "http://localhost:3000")!, store: MemorySessionStore(token: "t"))
+        return StoryGenerationModel(client: client, request: GenerateStoryRequest(profileIds: ["p"]), stepDelay: .seconds(3600))
+    }
+
+    @Test func rendersStoryScreens() throws {
+        try render("10-generate") { GenerateView(model: generationModel(), hero: hero, onPaywall: { _ in }, onClose: {}) }
+        try render("11-reveal") { RevealView(story: story, hero: hero, onRead: {}) }
+        try render("12-reading") { ReadingView(story: story, hero: hero, mediaURL: { _ in nil }, onBack: {}, onUpsell: {}) }
+        try render("13-paywall") { PaywallView(hero: hero, onTrial: {}, onFree: {}) }
+        try render("14-done") { DoneView(hero: hero, trial: true, onHome: {}) }
+    }
 }
 #endif

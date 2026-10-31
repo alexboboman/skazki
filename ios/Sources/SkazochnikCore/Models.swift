@@ -130,6 +130,17 @@ public struct MediaAsset: Codable, Equatable, Identifiable, Sendable {
     public var contentType: String
     public var prompt: String
     public var afterParagraph: Int
+
+    public init(id: String, type: String, variant: String, provider: String, url: String, contentType: String, prompt: String, afterParagraph: Int) {
+        self.id = id
+        self.type = type
+        self.variant = variant
+        self.provider = provider
+        self.url = url
+        self.contentType = contentType
+        self.prompt = prompt
+        self.afterParagraph = afterParagraph
+    }
 }
 
 public struct StorySummary: Codable, Equatable, Identifiable, Sendable {
