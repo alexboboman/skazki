@@ -79,6 +79,14 @@ public struct APIClient: Sendable {
         return response
     }
 
+    /// Swaps the stored token for a fresh one; the app calls this on every launch so tokens never run out
+    /// while the app is in use. Throws `.unauthorized` when the account is no longer recognised.
+    public func refreshToken() async throws {
+        guard store.loadToken() != nil else { return }
+        let response: AuthResponse = try await send("POST", "/v1/auth/refresh")
+        store.saveToken(response.token)
+    }
+
     public func signOut() {
         store.saveToken(nil)
     }

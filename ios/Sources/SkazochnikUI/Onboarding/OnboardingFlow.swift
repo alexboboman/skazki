@@ -8,11 +8,12 @@ public struct OnboardingFlow: View {
     public init(
         client: APIClient,
         startAtProfile: Bool = false,
+        editing: ChildProfile? = nil,
         onFinished: @escaping (ChildProfile) -> Void,
         onCancel: (() -> Void)? = nil
     ) {
         _model = StateObject(wrappedValue: OnboardingModel(
-            client: client, startAtProfile: startAtProfile, onFinished: onFinished, onCancel: onCancel
+            client: client, startAtProfile: startAtProfile, editing: editing, onFinished: onFinished, onCancel: onCancel
         ))
     }
 

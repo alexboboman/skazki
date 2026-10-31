@@ -8,15 +8,19 @@ public struct MainView: View {
         case reading(storyId: String, ReadableStory, HeroInfo)
         case create(ChildProfile)
         case addChild
+        case editChild(ChildProfile)
     }
 
     @StateObject private var app: AppModel
+    private let onStartOver: () -> Void
     @State private var tab: MainTab = .home
     @State private var overlay: Overlay?
     @State private var notice: String?
 
-    public init(client: APIClient, cache: LibraryCache = FileLibraryCache()) {
+    /// `onStartOver` runs after the lost account's data was wiped; the app then restarts onboarding.
+    public init(client: APIClient, cache: LibraryCache = FileLibraryCache(), onStartOver: @escaping () -> Void = {}) {
         _app = StateObject(wrappedValue: AppModel(client: client, repository: LibraryRepository(client: client, cache: cache)))
+        self.onStartOver = onStartOver
     }
 
     public var body: some View {
@@ -31,7 +35,7 @@ public struct MainView: View {
                     case .library:
                         LibraryView(app: app, onOpen: open) { story in Task { await app.toggleFavorite(story) } }
                     case .kids:
-                        KidsView(app: app) { overlay = .addChild }
+                        KidsView(app: app, onAdd: { overlay = .addChild }, onEdit: { overlay = .editChild($0) })
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -52,6 +56,14 @@ public struct MainView: View {
             }
 
             overlayView
+
+            if app.sessionExpired {
+                SessionExpiredView {
+                    app.startOver()
+                    onStartOver()
+                }
+                .transition(.opacity)
+            }
         }
         .animation(.easeOut(duration: 0.3), value: overlay)
         .animation(.easeOut(duration: 0.2), value: notice)
@@ -87,6 +99,18 @@ public struct MainView: View {
                     app.added(profile)
                     overlay = nil
                     tab = .kids
+                },
+                onCancel: { overlay = nil }
+            )
+            .background(Theme.bg0.ignoresSafeArea())
+            .transition(.move(edge: .bottom))
+        case .editChild(let profile):
+            OnboardingFlow(
+                client: app.client,
+                editing: profile,
+                onFinished: { updated in
+                    app.updated(updated)
+                    overlay = nil
                 },
                 onCancel: { overlay = nil }
             )

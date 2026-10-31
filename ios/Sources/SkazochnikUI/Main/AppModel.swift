@@ -8,6 +8,8 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var stories: [StorySummary]
     @Published public private(set) var isOffline = false
     @Published public private(set) var isLoading = false
+    /// The server no longer recognises this account (token expired or the account is gone).
+    @Published public private(set) var sessionExpired = false
     @Published public var activeProfileId: String? {
         didSet { defaults.set(activeProfileId, forKey: Self.activeKey) }
     }
@@ -54,12 +56,53 @@ public final class AppModel: ObservableObject {
 
     // MARK: Library
 
-    /// Stories of one child (or everyone), newest first, optionally only favourites.
-    func stories(for profileId: String?, favoritesOnly: Bool = false) -> [StorySummary] {
-        stories
+    /// Stories of one child (or everyone), newest first, optionally only favourites and matching a search.
+    func stories(for profileId: String?, favoritesOnly: Bool = false, matching query: String = "") -> [StorySummary] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stories
             .filter { profileId == nil || $0.heroIds.contains(profileId!) }
             .filter { !favoritesOnly || $0.favorite }
+            .filter { needle.isEmpty || ($0.title ?? "").localizedCaseInsensitiveContains(needle) }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Replaces an edited profile in place.
+    public func updated(_ profile: ChildProfile) {
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[index] = profile
+        } else {
+            profiles.append(profile)
+        }
+    }
+
+    /// At least one child always stays: the app has nothing to tell stories about otherwise.
+    var canDeleteProfiles: Bool { profiles.count > 1 }
+
+    /// Returns false when the child could not be deleted.
+    @discardableResult
+    func deleteProfile(_ profile: ChildProfile) async -> Bool {
+        guard canDeleteProfiles else { return false }
+        do {
+            try await repository.deleteProfile(id: profile.id)
+        } catch {
+            return false
+        }
+        profiles.removeAll { $0.id == profile.id }
+        if activeProfileId == profile.id { activeProfileId = profiles.first?.id }
+        // The server drops the child from its stories; do the same here until the next refresh.
+        for index in stories.indices { stories[index].heroIds.removeAll { $0 == profile.id } }
+        return true
+    }
+
+    @discardableResult
+    func deleteStory(_ story: StorySummary) async -> Bool {
+        do {
+            try await repository.deleteStory(id: story.id)
+        } catch {
+            return false
+        }
+        stories.removeAll { $0.id == story.id }
+        return true
     }
 
     /// A story the child has started but not finished.
@@ -74,6 +117,15 @@ public final class AppModel: ObservableObject {
     public func refresh() async {
         isLoading = true
         defer { isLoading = false }
+
+        // Renew the token first, so an account that is used regularly never expires.
+        do {
+            try await client.refreshToken()
+        } catch APIError.unauthorized {
+            sessionExpired = true
+            return
+        } catch {}
+
         do {
             async let loadedProfiles = repository.profiles()
             async let loadedStories = repository.stories()
@@ -81,9 +133,21 @@ public final class AppModel: ObservableObject {
             profiles = p.value
             stories = s.value
             isOffline = p.fromCache || s.fromCache
+        } catch APIError.unauthorized {
+            sessionExpired = true
         } catch {
             isOffline = true
         }
+    }
+
+    /// Wipes the local data of the lost account, the caller then restarts onboarding.
+    public func startOver() {
+        repository.forgetEverything()
+        client.signOut()
+        defaults.removeObject(forKey: Self.activeKey)
+        profiles = []
+        stories = []
+        activeProfileId = nil
     }
 
     func readable(_ summary: StorySummary) async throws -> ReadableStory {

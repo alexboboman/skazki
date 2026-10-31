@@ -33,6 +33,11 @@ private func jsonArray(_ items: [String]) -> String {
     "[" + items.map { "\"\($0)\"" }.joined(separator: ",") + "]"
 }
 
+import Testing
+
+/// Suites that share `RouteStub.routes` live under this one serialized parent, so they never run in parallel.
+@Suite(.serialized) enum StubbedNetwork {}
+
 enum Sample {
     static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()

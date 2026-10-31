@@ -70,10 +70,25 @@ public struct LibraryRepository: Sendable {
         cache.save(cachedStories().filter { $0.id != id }, key: "stories")
     }
 
+    public func updateProfile(id: String, _ input: ChildProfileInput) async throws -> ChildProfile {
+        let updated = try await client.updateProfile(id: id, input)
+        var list = cachedProfiles()
+        if let index = list.firstIndex(where: { $0.id == id }) { list[index] = updated } else { list.append(updated) }
+        cache.save(list, key: "profiles")
+        return updated
+    }
+
+    public func deleteProfile(id: String) async throws {
+        try await client.deleteProfile(id: id)
+        cache.save(cachedProfiles().filter { $0.id != id }, key: "profiles")
+    }
+
     /// Stores a story that was just generated, so it can be reopened offline straight away.
     public func remember(_ story: Story) {
         cache.save(story, key: "story-\(story.id)")
     }
+
+    public func forgetEverything() { cache.removeAll() }
 
     private func fetch<T: Codable & Sendable>(key: String, _ request: () async throws -> T) async throws -> Loaded<T> {
         do {

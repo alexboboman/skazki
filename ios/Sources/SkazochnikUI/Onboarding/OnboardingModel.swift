@@ -9,8 +9,23 @@ public struct ProfileDraft: Equatable {
     public var appearance = Appearance()
     public var interests: [String] = []
     public var world: WorldID = .forest
+    /// Not editable in the steps, but kept when an existing profile is edited.
+    var language = "Русский"
+    var favoriteCharacter: String?
 
     public init() {}
+
+    /// Starts from an existing profile (editing).
+    public init(profile: ChildProfile) {
+        name = profile.name
+        age = profile.age
+        gender = profile.gender
+        appearance = profile.appearance ?? Appearance()
+        interests = profile.interests
+        world = profile.worlds.first ?? .forest
+        language = profile.language
+        favoriteCharacter = profile.favoriteCharacter
+    }
 
     public var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -21,7 +36,9 @@ public struct ProfileDraft: Equatable {
             gender: gender,
             appearance: appearance,
             interests: interests,
-            worlds: [world]
+            worlds: [world],
+            favoriteCharacter: favoriteCharacter,
+            language: language
         )
     }
 }
@@ -56,20 +73,27 @@ public final class OnboardingModel: ObservableObject {
     private let onFinished: (ChildProfile) -> Void
     private let startAtProfile: Bool
     private let onCancel: (() -> Void)?
+    private let editing: ChildProfile?
+
+    /// True when an existing profile is edited: the last button says «Сохранить» and updates it.
+    public var isEditing: Bool { editing != nil }
 
     /// `startAtProfile` skips the welcome slides (adding another child from the main app);
     /// then going back from the first step calls `onCancel`.
     public init(
         client: APIClient,
         startAtProfile: Bool = false,
+        editing: ChildProfile? = nil,
         onFinished: @escaping (ChildProfile) -> Void,
         onCancel: (() -> Void)? = nil
     ) {
         self.client = client
-        self.startAtProfile = startAtProfile
+        self.editing = editing
+        self.startAtProfile = startAtProfile || editing != nil
+        if let editing { draft = ProfileDraft(profile: editing) }
         self.onFinished = onFinished
         self.onCancel = onCancel
-        if startAtProfile { step = .name }
+        if self.startAtProfile { step = .name }
     }
 
     public func next() {
@@ -103,7 +127,12 @@ public final class OnboardingModel: ObservableObject {
 
         do {
             try await client.ensureSignedIn()
-            let profile = try await client.createProfile(draft.input)
+            let profile: ChildProfile
+            if let editing {
+                profile = try await client.updateProfile(id: editing.id, draft.input)
+            } else {
+                profile = try await client.createProfile(draft.input)
+            }
             onFinished(profile)
         } catch let APIError.paywall(info) {
             paywall = info

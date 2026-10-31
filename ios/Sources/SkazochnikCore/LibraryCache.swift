@@ -5,6 +5,8 @@ public protocol LibraryCache: Sendable {
     func load<T: Decodable>(_ type: T.Type, key: String) -> T?
     func save<T: Encodable>(_ value: T, key: String)
     func remove(key: String)
+    /// Forgets everything (new account on this device).
+    func removeAll()
 }
 
 public final class MemoryLibraryCache: LibraryCache, @unchecked Sendable {
@@ -27,6 +29,11 @@ public final class MemoryLibraryCache: LibraryCache, @unchecked Sendable {
     public func remove(key: String) {
         lock.lock(); defer { lock.unlock() }
         storage[key] = nil
+    }
+
+    public func removeAll() {
+        lock.lock(); defer { lock.unlock() }
+        storage = [:]
     }
 
     static let encoder: JSONEncoder = {
@@ -68,6 +75,12 @@ public final class FileLibraryCache: LibraryCache, @unchecked Sendable {
     public func remove(key: String) {
         lock.lock(); defer { lock.unlock() }
         try? FileManager.default.removeItem(at: url(for: key))
+    }
+
+    public func removeAll() {
+        lock.lock(); defer { lock.unlock() }
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files { try? FileManager.default.removeItem(at: file) }
     }
 
     private func url(for key: String) -> URL {

@@ -9,15 +9,40 @@ struct LibraryView: View {
 
     @State private var favoritesOnly = false
     @State private var kidFilter: String?
+    @State private var searching = false
+    @State private var query = ""
+    @State private var pendingDelete: StorySummary?
+    @State private var deleteFailed = false
+    @FocusState private var searchFocused: Bool
 
     private let columns = [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]
 
     var body: some View {
-        let list = app.stories(for: kidFilter, favoritesOnly: favoritesOnly)
+        let list = app.stories(for: kidFilter, favoritesOnly: favoritesOnly, matching: query)
 
         AdaptiveScroll {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Сказки").display(30, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 18)
+                HStack {
+                    Text("Сказки").display(30, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                    CircleIconButton(systemName: searching ? "xmark" : "magnifyingglass", label: searching ? "Закрыть поиск" : "Поиск") {
+                        searching.toggle()
+                        if searching { searchFocused = true } else { query = "" }
+                    }
+                }
+                .padding(.bottom, 18)
+
+                if searching {
+                    TextField("", text: $query, prompt: Text("Название сказки").foregroundStyle(Theme.text3))
+                        .font(Theme.sans(15))
+                        .foregroundStyle(Theme.text)
+                        .tint(Theme.accent)
+                        .focused($searchFocused)
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 12)
+                        .background(Theme.card, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Theme.border))
+                        .padding(.bottom, 14)
+                }
 
                 HStack(spacing: 0) {
                     segment("Все", selected: !favoritesOnly) { favoritesOnly = false }
@@ -43,7 +68,7 @@ struct LibraryView: View {
                 if list.isEmpty {
                     VStack(spacing: 12) {
                         MoonIcon(size: 64)
-                        Text(favoritesOnly ? "Любимых сказок пока нет." : "Здесь пока пусто.").bodyStyle()
+                        Text(!query.isEmpty ? "Ничего не нашлось." : favoritesOnly ? "Любимых сказок пока нет." : "Здесь пока пусто.").bodyStyle()
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 50)
@@ -58,6 +83,24 @@ struct LibraryView: View {
             .padding(.bottom, 20)
         }
         .refreshable { await app.refresh() }
+        .confirmationDialog(
+            "Удалить сказку?",
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Удалить", role: .destructive) {
+                guard let story = pendingDelete else { return }
+                Task { deleteFailed = !(await app.deleteStory(story)) }
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text(pendingDelete?.title ?? "")
+        }
+        .alert("Не получилось удалить", isPresented: $deleteFailed) {
+            Button("Понятно", role: .cancel) {}
+        } message: {
+            Text("Проверьте интернет и попробуйте ещё раз.")
+        }
     }
 
     private func segment(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -102,5 +145,9 @@ struct LibraryView: View {
             }
             .buttonStyle(.plain)
         }
+        .contextMenu {
+            Button(role: .destructive) { pendingDelete = story } label: { Label("Удалить", systemImage: "trash") }
+        }
+        .accessibilityAction(named: "Удалить") { pendingDelete = story }
     }
 }

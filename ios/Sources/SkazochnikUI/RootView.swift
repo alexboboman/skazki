@@ -26,7 +26,10 @@ public struct RootView: View {
     public var body: some View {
         Group {
             if onboardingFinished {
-                MainView(client: client, cache: cache)
+                MainView(client: client, cache: cache) {
+                    stage = .onboarding
+                    onboardingFinished = false
+                }
             } else {
                 flow
             }

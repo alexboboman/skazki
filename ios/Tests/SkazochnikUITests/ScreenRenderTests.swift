@@ -118,7 +118,7 @@ import AppKit
         let app = Sample.appModel()
         try render("20-home") { mainScreen(.home) { HomeView(app: app, onOpen: { _ in }, onCreate: {}, onAllStories: {}) } }
         try render("21-library") { mainScreen(.library) { LibraryView(app: app, onOpen: { _ in }, onFavorite: { _ in }) } }
-        try render("22-kids") { mainScreen(.kids) { KidsView(app: app, onAdd: {}) } }
+        try render("22-kids") { mainScreen(.kids) { KidsView(app: app, onAdd: {}, onEdit: { _ in }) } }
         try render("23-library-empty") {
             mainScreen(.library) { LibraryView(app: Sample.appModel(stories: []), onOpen: { _ in }, onFavorite: { _ in }) }
         }

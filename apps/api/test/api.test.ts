@@ -126,6 +126,29 @@ describe("auth", () => {
     assert.equal((await call("POST", "/v1/auth/apple", undefined, {})).status, 400);
   });
 
+  test("refresh gives a new working token for the same account and keeps its data", async () => {
+    const guest = (await call("POST", "/v1/auth/anonymous")).json;
+    await call("POST", "/v1/profiles", guest.token, profile);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100)); // the iat claim has one second resolution
+    const refreshed = await call("POST", "/v1/auth/refresh", guest.token);
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.json.user.id, guest.user.id);
+    assert.equal(refreshed.json.user.anonymous, true);
+    assert.notEqual(refreshed.json.token, guest.token);
+
+    assert.equal((await call("GET", "/v1/profiles", refreshed.json.token)).json.profiles.length, 1);
+    assert.equal((await call("POST", "/v1/auth/refresh")).status, 401);
+    assert.equal((await call("POST", "/v1/auth/refresh", "garbage")).status, 401);
+  });
+
+  test("tokens live for 90 days", async () => {
+    const guest = (await call("POST", "/v1/auth/anonymous")).json;
+    const payload = JSON.parse(Buffer.from(guest.token.split(".")[1], "base64url").toString());
+    const days = (payload.exp - payload.iat) / 86400;
+    assert.equal(days, 90);
+  });
+
   test("dev login is stable per name", async () => {
     const a1 = (await call("POST", "/v1/auth/dev", undefined, { name: "stable" })).json;
     const a2 = (await call("POST", "/v1/auth/dev", undefined, { name: "stable" })).json;

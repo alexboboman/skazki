@@ -8,7 +8,8 @@ import { TRIAL_DAYS } from "./entitlements.js";
 
 const APPLE_ISSUER = "https://appleid.apple.com";
 const APPLE_JWKS_URI = "https://appleid.apple.com/auth/keys";
-const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
+/** A guest account has no password, so a lost token is a lost account: tokens live long and the app renews them on every launch. */
+const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 90;
 
 export type AuthEnv = { Variables: { userId: string } };
 
@@ -34,6 +35,8 @@ export interface AuthService {
   /** Resolves the user id from an `Authorization: Bearer` header value, if it is valid. */
   userIdFromHeader(header: string | undefined): Promise<string | undefined>;
   loginDev(name: string): Promise<{ token: string; user: AuthUser }>;
+  /** Issues a fresh token for a user whose current token is still valid. */
+  refresh(userId: string): Promise<{ token: string; user: AuthUser }>;
   requireAuth: MiddlewareHandler<AuthEnv>;
 }
 
@@ -142,6 +145,16 @@ export function createAuthService(db: Db, env: NodeJS.ProcessEnv = process.env):
     },
 
     completeAppleLogin,
+
+    async refresh(userId) {
+      const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+
+      if (!row) {
+        throw new Error("Unknown user.");
+      }
+
+      return issue(toAuthUser(row));
+    },
 
     async loginDev(name) {
       return issue(await upsertUser(`dev:${name}`));

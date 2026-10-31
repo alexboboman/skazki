@@ -64,6 +64,12 @@ export function createApp(deps: AppDeps) {
     return c.json(response, 201);
   });
 
+  // Called by the app on every launch so an account that is used regularly never loses its token.
+  app.post("/v1/auth/refresh", auth.requireAuth, async (c) => {
+    const response: AuthResponse = await auth.refresh(c.get("userId"));
+    return c.json(response);
+  });
+
   // With a guest bearer token the Apple ID is linked to that account; without one it is a plain sign-in.
   app.post("/v1/auth/apple", async (c) => {
     const body = await safeJson(c.req);
