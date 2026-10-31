@@ -22,6 +22,9 @@ export interface StoryPipelineDeps {
 
 export class UnsafeStoryError extends Error {}
 
+/** The response plus what the writer left for the next part of a series; the caller stores it and strips it from the response. */
+export type StoryPipelineResult = GenerateStoryResponse & { notes: { summary?: string; seed?: string } };
+
 /** The text is regenerated this many times when the safety check rejects it. */
 const SAFETY_RETRIES = 1;
 
@@ -34,7 +37,7 @@ const SAFETY_RETRIES = 1;
 export async function runStoryPipeline(
   request: GenerateStoryRequest,
   deps: StoryPipelineDeps
-): Promise<GenerateStoryResponse> {
+): Promise<StoryPipelineResult> {
   const steps: PipelineStep[] = [];
   const wantsImages = request.mediaOptions?.requestedTypes.includes("image") ?? false;
 
@@ -48,7 +51,7 @@ export async function runStoryPipeline(
   if (wantsImages && parsed.images.length > 0) {
     const quality = request.mediaOptions?.imageQuality ?? "standard";
     const heroes = [request.childProfile, ...(request.companions ?? [])];
-    const generated = await generateImages(parsed.images, request.childProfile, heroes, quality, deps, steps);
+    const generated = await generateImages(parsed.images, request.childProfile, heroes, parsed.seed ?? request.arc?.seed, quality, deps, steps);
     media = generated.media;
     imageCostUsd = generated.costUsd;
   } else {
@@ -75,7 +78,8 @@ export async function runStoryPipeline(
       generatedTypes: media.length > 0 ? ["image"] : [],
       note: mediaNote(requestedTypes, media.length, steps)
     },
-    steps
+    steps,
+    notes: { summary: parsed.summary, seed: parsed.seed }
   };
 }
 
@@ -137,6 +141,7 @@ async function generateImages(
   cues: ImageCue[],
   profile: ChildProfile,
   heroes: ChildProfile[],
+  seed: string | undefined,
   quality: "standard" | "hd",
   deps: StoryPipelineDeps,
   steps: PipelineStep[]
@@ -149,7 +154,7 @@ async function generateImages(
   const results = await Promise.all(
     cues.map(async (cue): Promise<{ asset: MediaAsset; costUsd: number } | undefined> => {
       try {
-        const prompt = buildIllustrationPrompt(cue.prompt, profile, heroes);
+        const prompt = buildIllustrationPrompt(cue.prompt, profile, heroes, seed);
         const image = await deps.imageGenerator.generateImage({ prompt, quality });
         const stored = await deps.mediaStore.save(image.bytes, image.contentType);
 
@@ -189,9 +194,9 @@ async function generateImages(
 }
 
 /** The look of every hero is fixed here, not left to the model, so they stay the same in all pictures. */
-function buildIllustrationPrompt(scene: string, profile: ChildProfile, heroes: ChildProfile[]): string {
+function buildIllustrationPrompt(scene: string, profile: ChildProfile, heroes: ChildProfile[], seed?: string): string {
   return `Children's book illustration, soft watercolor style, warm colors.
-Characters: ${heroes.map(describeHero).join("; ")}.
+Characters: ${heroes.map(describeHero).join("; ")}.${seed ? `\nRecurring characters and setting of the whole series (keep them the same): ${seed}.` : ""}
 Scene: ${scene}.
 World: ${profile.world}.
 Age-appropriate, gentle, no scary elements, no text or letters in the image.

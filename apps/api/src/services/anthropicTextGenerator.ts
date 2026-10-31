@@ -1,4 +1,4 @@
-import type { ChildProfile, GenerateStoryRequest, StoryUsage } from "../../../../packages/shared/src/index.js";
+import type { ArcContext, ChildProfile, GenerateStoryRequest, StoryUsage } from "../../../../packages/shared/src/index.js";
 import { postJson } from "./httpClient.js";
 
 interface AnthropicMessageResponse {
@@ -37,7 +37,7 @@ export class AnthropicTextGenerator implements TextGenerator {
   ) {}
 
   async generateStory(request: GenerateStoryRequest): Promise<TextResult> {
-    const wordCount = request.wordCount ?? 700;
+    const wordCount = request.wordCount ?? (request.arc ? 500 : 700);
     const system = buildSystemPrompt(request, wordCount);
     const userPrompt = buildUserPrompt(request);
 
@@ -97,10 +97,45 @@ ${heroes.map(describeHeroRu).join("\n")}
 ${request.topic ? `Тема сказки: ${request.topic}.` : "Тема — на твой выбор, добрая и волшебная."}
 Длина: около ${wordCount} слов.
 Не используй страшных, тёмных или жестоких элементов.
-Придумай название сказки и поставь его первой строкой в виде "# Название".
+${request.arc ? arcInstructions(request.arc) : `Придумай название сказки и поставь его первой строкой в виде "# Название".
 Мораль и финальное пожелание не пиши в тексте сказки, а выдай отдельными маркерами в самом конце, каждый с новой строки:
 [MORAL: одно-два предложения о том, чему учит сказка]
-[CLOSING: короткое пожелание спокойной ночи]`;
+[CLOSING: короткое пожелание спокойной ночи]`}`;
+}
+
+/** Instructions for one part of a series; the previous parts reach the writer as short summaries only. */
+function arcInstructions(arc: ArcContext): string {
+  const last = arc.partNumber === arc.length;
+  const lines = [`Это часть ${arc.partNumber} из ${arc.length} сказочного сериала${arc.title ? ` «${arc.title}»` : ""}: одна история, которая рассказывается по частям, по одной на вечер.`];
+
+  if (arc.partNumber === 1) {
+    lines.push(
+      `Придумай название всего сериала и поставь его первой строкой в виде "# Название". Задай героев, мир и главную загадку или путь, которые можно развернуть за ${arc.length} частей.`,
+      "Закончи часть мягко и спокойно, чтобы захотелось продолжения, но без тревоги и напряжения: ребёнок засыпает."
+    );
+  } else {
+    lines.push(
+      `Поставь первой строкой название этой части в виде "# Название части" (без слов «часть» и номера).`,
+      ...(arc.seed ? [`Постоянные герои и место действия (держи их неизменными): ${arc.seed}`] : []),
+      ...(arc.previousSummaries.length
+        ? [`Что было раньше:\n${arc.previousSummaries.map((item, index) => `${arc.partNumber - arc.previousSummaries.length + index}) ${item}`).join("\n")}`]
+        : []),
+      "Продолжи историю с того места, где она остановилась, не пересказывай прошлое и не повторяйся.",
+      last
+        ? "Это финал: заверши все линии, пусть всё закончится тепло и счастливо."
+        : "Закончи часть мягко и спокойно, чтобы захотелось продолжения, но без тревоги и напряжения: ребёнок засыпает."
+    );
+  }
+
+  lines.push(
+    "Мораль и пожелание не пиши в тексте, а выдай отдельными маркерами в самом конце, каждый с новой строки:",
+    ...(arc.partNumber === 1 ? ["[SEED: short English description of the recurring characters (names, species, look) and the setting, for the illustrator]"] : []),
+    "[SUMMARY: что произошло в этой части, 2-3 предложения, по-русски]",
+    ...(last ? ["[MORAL: одно-два предложения о том, чему учит вся история]"] : []),
+    "[CLOSING: короткое пожелание спокойной ночи]"
+  );
+
+  return lines.join("\n");
 }
 
 function describeHeroRu(hero: ChildProfile): string {

@@ -8,7 +8,7 @@ import type {
   Tier
 } from "../../../../packages/shared/src/index.js";
 import type { Db } from "../db/client.js";
-import { childProfiles, subscriptions, usageCounters, users } from "../db/schema.js";
+import { childProfiles, stories, storyArcs, subscriptions, usageCounters, users } from "../db/schema.js";
 
 /** Length of the Family trial for new accounts. `TRIAL_DAYS=0` (dev) makes new accounts start on Free to try the limits. */
 export const TRIAL_DAYS = trialDaysFromEnv(process.env);
@@ -60,7 +60,7 @@ export const TIERS: Record<Tier, TierConfig> = {
 const TIER_RANK: Record<Tier, number> = { free: 0, family: 1, family_plus: 2 };
 const ACTIVE_STATUSES = ["active", "grace_period", "billing_retry"];
 
-/** Story arcs are gated by tier only; arc parts get their own quota when arcs are built. */
+/** Series parts have no quota of their own: the tier gates them, and `activeArcs` caps unfinished series. */
 const FORMAT_FEATURE: Partial<Record<StoryFormat, QuotaFeature>> = {
   classic_story: "classic_story",
   quick_story: "quick_story"
@@ -118,6 +118,12 @@ export class EntitlementService {
       .from(childProfiles)
       .where(eq(childProfiles.userId, userId));
 
+    const [{ activeArcs }] = await this.db
+      .select({ activeArcs: sql<number>`count(*)::int` })
+      .from(storyArcs)
+      .innerJoin(stories, eq(stories.id, storyArcs.storyId))
+      .where(and(eq(stories.userId, userId), eq(storyArcs.status, "active")));
+
     const quotas: QuotaStatus[] = [];
 
     for (const feature of Object.keys(config.quotas) as QuotaFeature[]) {
@@ -151,6 +157,7 @@ export class EntitlementService {
       limits: {
         profiles: { limit: config.profiles, used: profilesUsed },
         activeArcs: config.activeArcs,
+        activeArcsUsed: activeArcs,
         imageQuality: config.imageQuality
       },
       quotas
@@ -207,6 +214,18 @@ export class EntitlementService {
     }
 
     return { ok: true, feature, periodStart: window.start };
+  }
+
+  /** Whether the user may start one more series: the tier must allow series and fewer than `activeArcs` may be unfinished. */
+  async canStartArc(userId: string, activeArcs: number, now = new Date()): Promise<ReserveResult> {
+    const { tier } = await this.resolveTier(userId, now);
+    const limit = TIERS[tier].activeArcs;
+
+    if (limit === 0) {
+      return { ok: false, reason: "upgrade_required", feature: "story_arc", tier };
+    }
+
+    return activeArcs >= limit ? { ok: false, reason: "limit_reached", feature: "story_arc", tier, limit } : { ok: true };
   }
 
   async refund(userId: string, reservation: { feature?: QuotaFeature; periodStart?: Date }): Promise<void> {

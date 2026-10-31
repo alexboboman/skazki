@@ -1,10 +1,13 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { WORLD_IDS } from "../../../packages/shared/src/index.js";
 import type {
   ApiErrorResponse,
   AuthResponse,
   ChildProfile,
   ChildProfileDto,
   GenerateStoryRequest,
+  GenerateStoryResponse,
+  MediaOptions,
   PaywallErrorResponse,
   Tier,
   UpdateStoryRequest,
@@ -18,10 +21,10 @@ import { DEFAULT_WORLD, WORLD_PROMPTS, wordsForMinutes } from "./services/catalo
 import type { ImageGenerator } from "./services/imageGenerator.js";
 import type { MediaStore } from "./services/mediaStore.js";
 import { ProfileLimitError, ProfileService } from "./services/profileService.js";
-import { StoryService } from "./services/storyService.js";
+import { PartConflictError, StoryService } from "./services/storyService.js";
 import type { SafetyChecker } from "./services/safetyChecker.js";
-import { runStoryPipeline, UnsafeStoryError } from "./services/storyPipeline.js";
-import { validateChildProfileInput, validateGenerateStoryBody } from "./validation.js";
+import { runStoryPipeline, UnsafeStoryError, type StoryPipelineResult } from "./services/storyPipeline.js";
+import { validateChildProfileInput, validateGenerateStoryBody, validateMediaOptions } from "./validation.js";
 
 export interface AppDeps {
   db: Db;
@@ -32,7 +35,7 @@ export interface AppDeps {
   safetyChecker?: SafetyChecker;
 }
 
-type ErrorStatus = 400 | 401 | 404 | 422 | 500 | 502;
+type ErrorStatus = 400 | 401 | 404 | 409 | 422 | 500 | 502;
 
 export function createApp(deps: AppDeps) {
   const app = new Hono<AuthEnv>();
@@ -40,6 +43,33 @@ export function createApp(deps: AppDeps) {
   const profiles = new ProfileService(deps.db);
   const stories = new StoryService(deps.db);
   const entitlements = new EntitlementService(deps.db);
+
+  function pipelineDeps() {
+    return {
+      textGenerator: deps.textGenerator!,
+      safetyChecker: deps.safetyChecker!,
+      imageGenerator: deps.imageGenerator,
+      mediaStore: deps.mediaStore
+    };
+  }
+
+  /** The picture quality never exceeds what the tier allows. */
+  async function limitMedia(userId: string, options: MediaOptions | undefined): Promise<MediaOptions | undefined> {
+    if (!options) {
+      return undefined;
+    }
+
+    const max = await entitlements.maxImageQuality(userId);
+    return { ...options, imageQuality: max === "standard" ? "standard" : options.imageQuality };
+  }
+
+  function generationError(c: Context, error: unknown) {
+    if (error instanceof UnsafeStoryError) {
+      return errorResponse(c, 422, "story_rejected", error.message);
+    }
+
+    return errorResponse(c, 502, "story_generation_failed", error instanceof Error ? error.message : "Unknown generation error.");
+  }
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -206,16 +236,7 @@ export function createApp(deps: AppDeps) {
 
       heroIds = saved.map((profile) => profile.id);
       worldId ??= saved[0].worlds[0] ?? DEFAULT_WORLD;
-      heroes = saved.map((profile) => ({
-        name: profile.name,
-        age: profile.age,
-        language: profile.language,
-        interests: profile.interests,
-        world: WORLD_PROMPTS[worldId as WorldId],
-        favoriteCharacter: profile.favoriteCharacter,
-        gender: profile.gender,
-        appearance: profile.appearance
-      }));
+      heroes = saved.map((profile) => toHero(profile, worldId as WorldId));
     } else {
       const inline = body.value.childProfile as ChildProfile;
       heroes = [worldId ? { ...inline, world: WORLD_PROMPTS[worldId] } : inline];
@@ -227,39 +248,111 @@ export function createApp(deps: AppDeps) {
       return paywallResponse(c, reservationToPaywall(reservation));
     }
 
-    try {
-      const maxQuality = await entitlements.maxImageQuality(userId);
-      const mediaOptions = body.value.mediaOptions && {
-        ...body.value.mediaOptions,
-        imageQuality: maxQuality === "standard" ? ("standard" as const) : body.value.mediaOptions.imageQuality
-      };
+    const arcLength = body.value.arcLength;
 
+    if (arcLength) {
+      const slot = await entitlements.canStartArc(userId, await stories.countActiveArcs(userId));
+
+      if (!slot.ok) {
+        return paywallResponse(c, reservationToPaywall(slot));
+      }
+    }
+
+    try {
+      const wordCount = body.value.wordCount ?? (body.value.lengthMinutes ? wordsForMinutes(body.value.lengthMinutes) : undefined);
       const request: GenerateStoryRequest = {
         childProfile: heroes[0],
         companions: heroes.slice(1),
         format: body.value.format,
         topic: body.value.topic,
-        wordCount: body.value.wordCount ?? (body.value.lengthMinutes ? wordsForMinutes(body.value.lengthMinutes) : undefined),
-        mediaOptions
+        wordCount,
+        mediaOptions: await limitMedia(userId, body.value.mediaOptions),
+        arc: arcLength ? { length: arcLength, partNumber: 1, previousSummaries: [] } : undefined
       };
 
-      const result = await runStoryPipeline(request, {
-        textGenerator: deps.textGenerator,
-        safetyChecker: deps.safetyChecker,
-        imageGenerator: deps.imageGenerator,
-        mediaStore: deps.mediaStore
-      });
+      const { notes, ...result } = await runStoryPipeline(request, pipelineDeps());
+
+      if (arcLength) {
+        const storyId = await stories.saveSeries(userId, heroIds, worldId, { length: arcLength, topic: body.value.topic, wordCount }, result, notes);
+        return c.json({ ...result, storyId, partNumber: 1, arc: { length: arcLength, partsReady: 1, status: "active" } } satisfies GenerateStoryResponse);
+      }
+
       const storyId = await stories.save(userId, heroIds, worldId, request, result);
       return c.json({ ...result, storyId });
     } catch (error) {
       await entitlements.refund(userId, reservation);
+      return generationError(c, error);
+    }
+  });
 
-      if (error instanceof UnsafeStoryError) {
-        return errorResponse(c, 422, "story_rejected", error.message);
+  /** Writes the next part of a series. */
+  app.post("/v1/stories/:id/parts", auth.requireAuth, uuidGuard("story_not_found", "Story not found."), async (c) => {
+    if (!deps.textGenerator || !deps.safetyChecker) {
+      return errorResponse(c, 500, "missing_api_key", "ANTHROPIC_API_KEY is not configured.");
+    }
+
+    const userId = c.get("userId");
+    const state = await stories.arcState(userId, c.req.param("id"));
+
+    if (!state) {
+      return errorResponse(c, 404, "story_not_found", "Series not found.");
+    }
+
+    if (state.status === "completed" || state.partsReady >= state.length) {
+      return errorResponse(c, 409, "arc_completed", "All parts of this series are already written.");
+    }
+
+    const reservation = await entitlements.reserve(userId, "story_arc_part");
+
+    if (!reservation.ok) {
+      return paywallResponse(c, reservationToPaywall(reservation));
+    }
+
+    const worldId = isWorldId(state.world) ? state.world : DEFAULT_WORLD;
+    const saved: ChildProfileDto[] = [];
+
+    for (const id of state.heroIds) {
+      const profile = await profiles.get(userId, id);
+
+      if (profile) {
+        saved.push(profile);
+      }
+    }
+
+    if (saved.length === 0) {
+      return errorResponse(c, 409, "heroes_missing", "The heroes of this series were deleted.");
+    }
+
+    const partNumber = state.partsReady + 1;
+    const requestBody = await safeJson(c.req);
+
+    try {
+      const request: GenerateStoryRequest = {
+        childProfile: toHero(saved[0], worldId),
+        companions: saved.slice(1).map((profile) => toHero(profile, worldId)),
+        format: "story_arc_part",
+        topic: state.topic,
+        wordCount: state.wordCount,
+        mediaOptions: await limitMedia(userId, isRecord(requestBody) ? validateMediaOptions(requestBody.mediaOptions) : undefined),
+        arc: { length: state.length, partNumber, title: state.title, seed: state.seed, previousSummaries: state.recentSummaries }
+      };
+
+      const { notes, ...result } = await runStoryPipeline(request, pipelineDeps());
+      await stories.addPart(state.storyId, partNumber, result, notes);
+
+      const last = partNumber === state.length;
+      return c.json({
+        ...result,
+        storyId: state.storyId,
+        partNumber,
+        arc: { length: state.length, partsReady: partNumber, status: last ? "completed" : "active" }
+      } satisfies GenerateStoryResponse);
+    } catch (error) {
+      if (error instanceof PartConflictError) {
+        return errorResponse(c, 409, "part_conflict", error.message);
       }
 
-      const message = error instanceof Error ? error.message : "Unknown generation error.";
-      return errorResponse(c, 502, "story_generation_failed", message);
+      return generationError(c, error);
     }
   });
 
@@ -310,8 +403,15 @@ export function createApp(deps: AppDeps) {
       patch.readProgress = body.readProgress;
     }
 
-    if (patch.favorite === undefined && patch.readProgress === undefined) {
-      return errorResponse(c, 400, "invalid_request", "Nothing to update: send favorite and/or readProgress.");
+    if (body.readPart !== undefined) {
+      if (typeof body.readPart !== "number" || !Number.isInteger(body.readPart) || body.readPart < 1) {
+        return errorResponse(c, 400, "invalid_request", "readPart must be a positive integer.");
+      }
+      patch.readPart = body.readPart;
+    }
+
+    if (patch.favorite === undefined && patch.readProgress === undefined && patch.readPart === undefined) {
+      return errorResponse(c, 400, "invalid_request", "Nothing to update: send favorite, readProgress and/or readPart.");
     }
 
     const updated = await stories.update(c.get("userId"), c.req.param("id"), patch);
@@ -330,6 +430,23 @@ export function createApp(deps: AppDeps) {
   });
 
   return app;
+}
+
+function toHero(profile: ChildProfileDto, world: WorldId): ChildProfile {
+  return {
+    name: profile.name,
+    age: profile.age,
+    language: profile.language,
+    interests: profile.interests,
+    world: WORLD_PROMPTS[world],
+    favoriteCharacter: profile.favoriteCharacter,
+    gender: profile.gender,
+    appearance: profile.appearance
+  };
+}
+
+function isWorldId(value: unknown): value is WorldId {
+  return typeof value === "string" && (WORLD_IDS as readonly string[]).includes(value);
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

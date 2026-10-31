@@ -117,13 +117,32 @@ export const storyParts = pgTable(
       .notNull()
       .references(() => stories.id, { onDelete: "cascade" }),
     partNumber: integer("part_number").notNull(),
+    /** Series only: the name of the part, its good-night line and a short summary that feeds the next part. */
+    title: text("title"),
+    closing: text("closing"),
+    summary: text("summary"),
     textContent: text("text_content").notNull(),
     unlockedAt: timestamp("unlocked_at", { withTimezone: true }),
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: createdAt()
   },
-  (table) => [index("story_parts_story_id_idx").on(table.storyId)]
+  (table) => [index("story_parts_story_id_idx").on(table.storyId), unique("story_parts_story_part_unique").on(table.storyId, table.partNumber)]
 );
+
+/** A story with `format = story_arc_part` is a series; this holds what the next parts need to stay consistent. */
+export const storyArcs = pgTable("story_arcs", {
+  storyId: uuid("story_id")
+    .primaryKey()
+    .references(() => stories.id, { onDelete: "cascade" }),
+  arcLength: integer("arc_length").notNull(),
+  status: text("status").notNull().default("active"),
+  topic: text("topic"),
+  wordCount: integer("word_count"),
+  /** Short English description of the recurring characters and the setting, written with part 1. */
+  styleSeed: text("style_seed"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt()
+});
 
 export const mediaAssets = pgTable(
   "media_assets",

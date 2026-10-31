@@ -37,6 +37,24 @@ export interface MediaOptions {
   audioVoice?: "on_device" | "premium";
 }
 
+/** Number of parts a series can have. The app offers the short ones first. */
+export const ARC_LENGTHS = [3, 5, 7, 14, 30] as const;
+
+export type ArcLength = (typeof ARC_LENGTHS)[number];
+
+/** What the text generator needs to write one part of a series that holds together. */
+export interface ArcContext {
+  length: number;
+  /** 1-based number of the part being written. */
+  partNumber: number;
+  /** Title of the series, once part 1 has named it. */
+  title?: string;
+  /** Short English description of the recurring characters and the setting, written with part 1. */
+  seed?: string;
+  /** Summaries of the latest parts before this one, oldest first. */
+  previousSummaries: string[];
+}
+
 export interface GenerateStoryRequest {
   /** Main hero. */
   childProfile: ChildProfile;
@@ -47,6 +65,8 @@ export interface GenerateStoryRequest {
   topic?: string;
   wordCount?: number;
   mediaOptions?: MediaOptions;
+  /** Set for parts of a series. */
+  arc?: ArcContext;
 }
 
 /** Reading length choices of the "Сочинить" screen. */
@@ -57,9 +77,11 @@ export type LengthMinutes = 4 | 7 | 12;
  * or an inline `childProfile`. `world` overrides the hero's world for this story;
  * `lengthMinutes` is turned into a word count unless `wordCount` is given.
  */
-export type GenerateStoryBody = Omit<GenerateStoryRequest, "childProfile" | "companions"> & {
+export type GenerateStoryBody = Omit<GenerateStoryRequest, "childProfile" | "companions" | "arc"> & {
   world?: WorldId;
   lengthMinutes?: LengthMinutes;
+  /** Required for `story_arc_part`: how many parts the series has. Starts the series with its part 1. */
+  arcLength?: ArcLength;
 } & (
     | { profileIds: string[]; childProfile?: undefined }
     | { profileIds?: undefined; childProfile: ChildProfile }
@@ -95,9 +117,20 @@ export interface MediaAsset {
   afterParagraph: number;
 }
 
+export interface StoryArcInfo {
+  /** Parts the series will have. */
+  length: number;
+  /** Parts written so far. */
+  partsReady: number;
+  status: "active" | "completed";
+}
+
 export interface GenerateStoryResponse {
   /** Id of the saved story, see GET /v1/stories/:id. */
   storyId?: string;
+  /** Number of the part this response holds (series only). */
+  partNumber?: number;
+  arc?: StoryArcInfo;
   story: {
     title?: string;
     /** Body paragraphs separated by blank lines; no title heading, moral or closing line. */
@@ -158,12 +191,19 @@ export interface StorySummary {
   favorite: boolean;
   /** 0..1 */
   readProgress: number;
+  /** Present for a series. */
+  arc?: StoryArcInfo;
   createdAt: string;
 }
 
 export interface StoryPartDto {
   partNumber: number;
+  /** Name of this part (series only). */
+  title?: string;
   text: string;
+  /** Good-night line of this part (series only; a single story keeps it on the story). */
+  closing?: string;
+  read: boolean;
   media: MediaAsset[];
 }
 
@@ -178,6 +218,8 @@ export interface StoryDto extends StorySummary {
 export interface UpdateStoryRequest {
   favorite?: boolean;
   readProgress?: number;
+  /** Marks this part of a series as read; readProgress then follows the share of read parts. */
+  readPart?: number;
 }
 
 export type Tier = "free" | "family" | "family_plus";
@@ -202,7 +244,9 @@ export interface EntitlementsResponse {
   trialEndsAt?: string;
   limits: {
     profiles: { limit: number; used: number };
+    /** How many series can be unfinished at once. */
     activeArcs: number;
+    activeArcsUsed?: number;
     imageQuality: "standard" | "hd";
   };
   quotas: QuotaStatus[];
@@ -210,7 +254,8 @@ export interface EntitlementsResponse {
 
 /**
  * HTTP 402 body: the client should show the paywall. `feature` says what was blocked:
- * `profiles`, `story_arc`, `classic_story` or `quick_story`.
+ * `profiles`, `story_arc`, `classic_story` or `quick_story`. For `story_arc` with `limit_reached` the user
+ * already has `limit` unfinished series.
  */
 export interface PaywallErrorResponse {
   error: {

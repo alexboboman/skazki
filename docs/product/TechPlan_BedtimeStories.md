@@ -171,7 +171,8 @@ media_assets (
 )
 
 -- Серии (Story Arc метаданные)
-story_arcs (id, story_id, arc_length, world_setting, main_character_name, style_seed, next_part_date)
+story_arcs (story_id, arc_length, status, topic, word_count, style_seed)  -- реализовано; next_part_date не нужен: части пишутся по запросу родителя
+story_parts (+ title, closing, summary)  -- summary и style_seed питают следующую часть
 
 -- Jobs генерации
 generation_jobs (id, user_id, story_id, type, status, requested_media[], current_step, error_code, created_at, updated_at)

@@ -1,10 +1,13 @@
 import {
+  ARC_LENGTHS,
   WORLD_IDS,
+  type ArcLength,
   type Appearance,
   type ChildProfileInput,
   type Gender,
   type GenerateStoryBody,
   type LengthMinutes,
+  type MediaOptions,
   type WorldId
 } from "../../../packages/shared/src/index.js";
 import { HAIR_COUNT, OUTFIT_COUNT, SKIN_COUNT } from "./services/catalog.js";
@@ -89,6 +92,17 @@ export function validateAppearance(value: unknown): Validated<Appearance | undef
   return { ok: true, value: { skin: value.skin, hair: value.hair, hairStyle: value.hairStyle, outfit: value.outfit } };
 }
 
+export function validateMediaOptions(value: unknown): MediaOptions | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    requestedTypes: Array.isArray(value.requestedTypes) ? value.requestedTypes.filter(isMediaType) : [],
+    imageQuality: value.imageQuality === "hd" ? "hd" : "standard"
+  };
+}
+
 export function validateGenerateStoryBody(body: unknown): Validated<GenerateStoryBody> {
   if (!isRecord(body)) {
     return { ok: false, message: "Request body must be a JSON object." };
@@ -114,20 +128,18 @@ export function validateGenerateStoryBody(body: unknown): Validated<GenerateStor
     return { ok: false, message: `topic must be a string of at most ${MAX_TOPIC_LENGTH} characters.` };
   }
 
+  if (body.format === "story_arc_part" && !ARC_LENGTHS.includes(body.arcLength as ArcLength)) {
+    return { ok: false, message: `arcLength must be one of: ${ARC_LENGTHS.join(", ")}.` };
+  }
+
   const common = {
     format: body.format,
+    arcLength: body.format === "story_arc_part" ? (body.arcLength as ArcLength) : undefined,
     wordCount: body.wordCount,
     lengthMinutes: body.lengthMinutes as LengthMinutes | undefined,
     world: body.world as WorldId | undefined,
     topic: typeof body.topic === "string" && body.topic.trim() ? body.topic.trim() : undefined,
-    mediaOptions: isRecord(body.mediaOptions)
-      ? {
-          requestedTypes: Array.isArray(body.mediaOptions.requestedTypes)
-            ? body.mediaOptions.requestedTypes.filter(isMediaType)
-            : [],
-          imageQuality: body.mediaOptions.imageQuality === "hd" ? ("hd" as const) : ("standard" as const)
-        }
-      : undefined
+    mediaOptions: validateMediaOptions(body.mediaOptions)
   };
 
   if (body.profileIds !== undefined) {
@@ -138,6 +150,11 @@ export function validateGenerateStoryBody(body: unknown): Validated<GenerateStor
     }
 
     return { ok: true, value: { ...common, profileIds: ids } };
+  }
+
+  if (body.format === "story_arc_part") {
+    // The next parts are written for the same heroes, so they have to be saved profiles.
+    return { ok: false, message: "A series needs saved profiles: send profileIds." };
   }
 
   const childProfile = body.childProfile;

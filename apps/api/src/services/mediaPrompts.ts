@@ -5,6 +5,10 @@ export interface ParsedStory {
   text: string;
   moral?: string;
   closing?: string;
+  /** Series only: what happened in this part, for the writer of the next one. */
+  summary?: string;
+  /** Series only, part 1: the recurring characters and the setting, in English. */
+  seed?: string;
   images: ImageCue[];
   /** Stored as metadata only: the worker ignores them until the matching feature flag exists. */
   audioCues: string[];
@@ -17,7 +21,7 @@ export interface ImageCue {
   afterParagraph: number;
 }
 
-const MARKER = /\[(IMAGE|ILLUSTRATION|AUDIO_CUE|VIDEO_CUE|MORAL|CLOSING):\s*([^\]]*?)\s*\]/gi;
+const MARKER = /\[(IMAGE|ILLUSTRATION|AUDIO_CUE|VIDEO_CUE|MORAL|CLOSING|SUMMARY|SEED):\s*([^\]]*?)\s*\]/gi;
 
 /**
  * Splits the raw Claude output into title, body text, moral, closing line and media cues.
@@ -31,6 +35,8 @@ export function parseMediaMarkers(raw: string): ParsedStory {
   let title: string | undefined;
   let moral: string | undefined;
   let closing: string | undefined;
+  let summary: string | undefined;
+  let seed: string | undefined;
 
   for (const block of raw.split(/\n{2,}/)) {
     const cues: Array<{ kind: string; value: string }> = [];
@@ -55,11 +61,15 @@ export function parseMediaMarkers(raw: string): ParsedStory {
         moral ||= cue.value || undefined;
       } else if (cue.kind === "CLOSING") {
         closing ||= cue.value || undefined;
+      } else if (cue.kind === "SUMMARY") {
+        summary ||= cue.value || undefined;
+      } else if (cue.kind === "SEED") {
+        seed ||= cue.value || undefined;
       } else if (cue.value) {
         images.push({ prompt: cue.value, afterParagraph: Math.max(paragraphs.length, 1) });
       }
     }
   }
 
-  return { title, text: paragraphs.join("\n\n"), moral, closing, images, audioCues, videoCues };
+  return { title, text: paragraphs.join("\n\n"), moral, closing, summary, seed, images, audioCues, videoCues };
 }

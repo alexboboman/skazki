@@ -54,7 +54,13 @@ const textGenerator = {
     if (behaviour.textFails) {
       throw new Error("anthropic down");
     }
-    return { title: "Саша и дракончик", text: RAW_STORY, usage: { inputTokens: 10, outputTokens: 20, estimatedCostUsd: 0.001 } };
+    const arc = (request as { arc?: { partNumber: number } }).arc;
+    const text = arc
+      ? RAW_STORY.replace("# Саша и дракончик", arc.partNumber === 1 ? "# Звёздный сериал" : `# Часть ${arc.partNumber}: огоньки`) +
+        `\n[SUMMARY: Итог части ${arc.partNumber}.]` +
+        (arc.partNumber === 1 ? "\n[SEED: a girl and a green dragon named Rex in a night forest]" : "")
+      : RAW_STORY;
+    return { title: "Саша и дракончик", text, usage: { inputTokens: 10, outputTokens: 20, estimatedCostUsd: 0.001 } };
   }
 };
 
@@ -113,6 +119,11 @@ async function newUser(tier?: "free" | "family" | "family_plus") {
     await call("PUT", "/v1/dev/subscription", json.token, { tier });
   }
   return json as { token: string; user: { id: string } };
+}
+
+async function seriesBody(token: string, arcLength: number, extra: object = {}) {
+  const created = await call("POST", "/v1/profiles", token, { ...profile, name: "Маша" });
+  return { profileIds: [created.json.id], format: "story_arc_part", arcLength, mediaOptions: { requestedTypes: ["image"] }, ...extra };
 }
 
 function resetBehaviour() {
@@ -355,13 +366,13 @@ describe("quotas and paywall", () => {
   test("story arcs need a paid tier", async () => {
     resetBehaviour();
     const free = await newUser("free");
-    const blocked = await call("POST", "/v1/stories/generate", free.token, inlineBody("story_arc_part"));
+    const blocked = await call("POST", "/v1/stories/generate", free.token, await seriesBody(free.token, 3));
     assert.equal(blocked.status, 402);
     assert.equal(blocked.json.error.code, "upgrade_required");
     assert.equal(blocked.json.error.feature, "story_arc");
 
     const family = await newUser("family");
-    assert.equal((await call("POST", "/v1/stories/generate", family.token, inlineBody("story_arc_part"))).status, 200);
+    assert.equal((await call("POST", "/v1/stories/generate", family.token, await seriesBody(family.token, 3))).status, 200);
   });
 
   test("parallel requests cannot exceed the limit", async () => {
@@ -826,5 +837,193 @@ describe("image compression", () => {
     const kept = await new CompressingImageGenerator(source(broken, "image/png")).generateImage({ prompt: "x", quality: "standard" });
     assert.equal(kept.bytes, broken);
     assert.equal(kept.contentType, "image/png");
+  });
+});
+
+describe("series", () => {
+  async function startSeries(token: string, length = 3) {
+    const res = await call("POST", "/v1/stories/generate", token, await seriesBody(token, length));
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    return res.json;
+  }
+
+  const nextPart = (token: string, storyId: string) =>
+    call("POST", `/v1/stories/${storyId}/parts`, token, { mediaOptions: { requestedTypes: ["image"] } });
+
+  test("part 1 starts a series that is stored with its arc and notes", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const first = await startSeries(user.token, 3);
+
+    assert.equal(first.partNumber, 1);
+    assert.deepEqual(first.arc, { length: 3, partsReady: 1, status: "active" });
+    assert.equal(first.story.title, "Звёздный сериал");
+    assert.equal(first.notes, undefined, "internal notes are not part of the response");
+    assert.equal(lastRequest.arc.partNumber, 1);
+    assert.deepEqual(lastRequest.arc.previousSummaries, []);
+
+    const story = (await call("GET", `/v1/stories/${first.storyId}`, user.token)).json;
+    assert.equal(story.format, "story_arc_part");
+    assert.equal(story.totalParts, 3);
+    assert.deepEqual(story.arc, { length: 3, partsReady: 1, status: "active" });
+    assert.equal(story.parts.length, 1);
+    assert.equal(story.parts[0].title, "Звёздный сериал");
+    assert.equal(story.parts[0].closing, "Спи сладко.");
+    assert.equal(story.parts[0].read, false);
+    assert.equal(story.moral, undefined, "the moral comes with the last part");
+
+    const listed = (await call("GET", "/v1/stories", user.token)).json.stories[0];
+    assert.deepEqual(listed.arc, { length: 3, partsReady: 1, status: "active" });
+  });
+
+  test("the next parts get summaries, the seed and the series title, and the last one completes it", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const first = await startSeries(user.token, 3);
+
+    imagePrompts.length = 0;
+    const second = await nextPart(user.token, first.storyId);
+    assert.equal(second.status, 200, JSON.stringify(second.json));
+    assert.equal(second.json.partNumber, 2);
+    assert.equal(second.json.arc.status, "active");
+    assert.equal(second.json.story.title, "Часть 2: огоньки");
+    assert.equal(lastRequest.arc.partNumber, 2);
+    assert.equal(lastRequest.arc.title, "Звёздный сериал");
+    assert.equal(lastRequest.arc.seed, "a girl and a green dragon named Rex in a night forest");
+    assert.deepEqual(lastRequest.arc.previousSummaries, ["Итог части 1."]);
+    assert.equal(lastRequest.format, "story_arc_part");
+    assert.ok(imagePrompts.every((prompt) => prompt.includes("green dragon named Rex")), "pictures carry the seed");
+
+    const third = await nextPart(user.token, first.storyId);
+    assert.equal(third.json.partNumber, 3);
+    assert.deepEqual(third.json.arc, { length: 3, partsReady: 3, status: "completed" });
+    assert.deepEqual(lastRequest.arc.previousSummaries, ["Итог части 1.", "Итог части 2."]);
+
+    const story = (await call("GET", `/v1/stories/${first.storyId}`, user.token)).json;
+    assert.deepEqual(story.parts.map((part: any) => part.partNumber), [1, 2, 3]);
+    assert.equal(story.moral, "Дружба делает мир теплее.");
+    assert.equal(story.arc.status, "completed");
+
+    const extra = await nextPart(user.token, first.storyId);
+    assert.equal(extra.status, 409);
+    assert.equal(extra.json.error.code, "arc_completed");
+  });
+
+  test("only the latest summaries go to the writer", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const first = await startSeries(user.token, 7);
+    for (let i = 0; i < 5; i++) {
+      assert.equal((await nextPart(user.token, first.storyId)).status, 200);
+    }
+    assert.deepEqual(lastRequest.arc.previousSummaries, ["Итог части 3.", "Итог части 4.", "Итог части 5."]);
+    assert.equal(lastRequest.arc.partNumber, 6);
+  });
+
+  test("a series needs a paid plan, saved profiles and a valid length", async () => {
+    resetBehaviour();
+    const family = await newUser("family");
+    const body = await seriesBody(family.token, 3);
+
+    assert.equal((await call("POST", "/v1/stories/generate", family.token, { ...body, arcLength: undefined })).status, 400);
+    assert.equal((await call("POST", "/v1/stories/generate", family.token, { ...body, arcLength: 4 })).status, 400);
+    const inline = await call("POST", "/v1/stories/generate", family.token, inlineBody("story_arc_part", { arcLength: 3 }));
+    assert.equal(inline.status, 400);
+    assert.match(inline.json.error.message, /profileIds/);
+  });
+
+  test("unfinished series are capped by the tier, finishing one frees the slot", async () => {
+    resetBehaviour();
+    const family = await newUser("family");
+    const first = await startSeries(family.token, 3);
+
+    const blocked = await call("POST", "/v1/stories/generate", family.token, await seriesBody(family.token, 3));
+    assert.equal(blocked.status, 402);
+    assert.equal(blocked.json.error.code, "limit_reached");
+    assert.equal(blocked.json.error.feature, "story_arc");
+    assert.equal(blocked.json.error.limit, 1);
+
+    const entitlements = (await call("GET", "/v1/entitlements", family.token)).json;
+    assert.equal(entitlements.limits.activeArcs, 1);
+    assert.equal(entitlements.limits.activeArcsUsed, 1);
+
+    await nextPart(family.token, first.storyId);
+    await nextPart(family.token, first.storyId);
+    assert.equal((await call("POST", "/v1/stories/generate", family.token, await seriesBody(family.token, 3))).status, 200);
+
+    const plus = await newUser("family_plus");
+    for (let i = 0; i < 3; i++) {
+      await startSeries(plus.token, 3);
+    }
+    assert.equal((await call("POST", "/v1/stories/generate", plus.token, await seriesBody(plus.token, 3))).status, 402);
+  });
+
+  test("a failed part leaves the series untouched and can be retried", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const first = await startSeries(user.token, 3);
+
+    behaviour.textFails = true;
+    assert.equal((await nextPart(user.token, first.storyId)).status, 502);
+    behaviour.textFails = false;
+
+    const story = (await call("GET", `/v1/stories/${first.storyId}`, user.token)).json;
+    assert.equal(story.arc.partsReady, 1);
+    assert.equal((await nextPart(user.token, first.storyId)).json.partNumber, 2);
+  });
+
+  test("two requests for the same part: one wins, the other gets 409", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const first = await startSeries(user.token, 5);
+    const results = await Promise.all([nextPart(user.token, first.storyId), nextPart(user.token, first.storyId)]);
+
+    assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+    assert.equal(results.find((r) => r.status === 409)?.json.error.code, "part_conflict");
+    assert.equal((await call("GET", `/v1/stories/${first.storyId}`, user.token)).json.arc.partsReady, 2);
+  });
+
+  test("a series is private, and loses its heroes with their profiles", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const stranger = await newUser("family");
+    const body = await seriesBody(user.token, 3);
+    const first = (await call("POST", "/v1/stories/generate", user.token, body)).json;
+
+    assert.equal((await nextPart(stranger.token, first.storyId)).status, 404);
+    assert.equal((await call("POST", "/v1/stories/not-a-uuid/parts", user.token, {})).status, 404);
+
+    // A single story is not a series.
+    const single = (await call("POST", "/v1/stories/generate", user.token, { ...inlineBody("quick_story") })).json;
+    assert.equal((await nextPart(user.token, single.storyId)).status, 404);
+
+    await call("DELETE", `/v1/profiles/${body.profileIds[0]}`, user.token);
+    const orphaned = await nextPart(user.token, first.storyId);
+    assert.equal(orphaned.status, 409);
+    assert.equal(orphaned.json.error.code, "heroes_missing");
+  });
+
+  test("reading a part updates the progress of the series", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const first = await startSeries(user.token, 3);
+    await nextPart(user.token, first.storyId);
+
+    const patched = await call("PATCH", `/v1/stories/${first.storyId}`, user.token, { readPart: 1 });
+    assert.equal(patched.status, 200);
+    assert.ok(Math.abs(patched.json.readProgress - 1 / 3) < 1e-6);
+    assert.deepEqual(patched.json.parts.map((part: any) => part.read), [true, false]);
+
+    // Reading the same part again changes nothing.
+    assert.ok(Math.abs((await call("PATCH", `/v1/stories/${first.storyId}`, user.token, { readPart: 1 })).json.readProgress - 1 / 3) < 1e-6);
+    assert.equal((await call("PATCH", `/v1/stories/${first.storyId}`, user.token, { readPart: 0 })).status, 400);
+    assert.equal((await call("PATCH", `/v1/stories/${first.storyId}`, (await newUser("family")).token, { readPart: 1 })).status, 404);
+  });
+
+  test("SUMMARY and SEED markers are parsed out of the text", () => {
+    const parsed = parseMediaMarkers("# Т\n\nАбзац.\n\n[SEED: a fox]\n[SUMMARY: Лис нашёл звезду.]\n[CLOSING: Спи.]");
+    assert.equal(parsed.seed, "a fox");
+    assert.equal(parsed.summary, "Лис нашёл звезду.");
+    assert.equal(parsed.text, "Абзац.");
   });
 });

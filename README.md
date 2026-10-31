@@ -136,7 +136,8 @@ curl -X POST http://localhost:3000/v1/stories/generate \
 Generate body (mirrors the "Сочинить" screen):
 
 - `profileIds`: 1 to 3 saved profiles; the first is the main hero, the others are told in the same story and the story appears in each one's library. Instead, an inline `childProfile` (`name`, `age`, `language`, `interests`, `world`, optional `favoriteCharacter`, `gender`, `appearance`) is accepted; such stories are saved without profile links.
-- `format`: `quick_story`, `classic_story` or `story_arc_part`.
+- `format`: `quick_story`, `classic_story` or `story_arc_part`. `story_arc_part` starts a series (see below), needs `arcLength` and saved `profileIds`.
+- `arcLength`: parts in the series, one of 3, 5, 7, 14, 30 (the app offers 3, 5 and 7).
 - `topic`: a preset ("Не страшно в темноте") or the parent's own words, up to 300 characters.
 - `lengthMinutes`: 4, 7 or 12, turned into about 450 / 780 / 1200 words (about 110 words a minute). An explicit `wordCount` (200 to 1200) wins.
 - `world`: one of `forest`, `ocean`, `space`, `castle`, `clouds`, `jungle`; overrides the hero's own world for this story. The ids are `WORLD_IDS` in `packages/shared`, the story prompt text for each is in `apps/api/src/services/catalog.ts`.
@@ -155,12 +156,23 @@ Endpoints (all under `/v1`, all except `auth/*` and `media/*` need a bearer toke
 | PUT | `/dev/subscription` | Dev only: switch tier |
 | GET, POST | `/profiles` | List / create child profiles |
 | GET, PUT, DELETE | `/profiles/:id` | Read / replace / delete a profile |
-| POST | `/stories/generate` | Generate and save a story (returns `storyId`) |
+| POST | `/stories/generate` | Generate and save a story (returns `storyId`); with `format: story_arc_part` it starts a series with part 1 |
+| POST | `/stories/:id/parts` | Write the next part of a series (body: optional `mediaOptions`) |
 | GET | `/stories?profileId=&favorite=` | Library list with `coverImageUrl`, `heroIds`, `world`, `readingMinutes`, `favorite`, `readProgress` |
-| GET, PATCH, DELETE | `/stories/:id` | Full story with parts, media, `moral`, `closing` / update `favorite` and `readProgress` (0 to 1) / delete |
+| GET, PATCH, DELETE | `/stories/:id` | Full story with parts, media, `moral`, `closing` / update `favorite`, `readProgress` (0 to 1) and `readPart` (marks a part of a series read) / delete |
 | GET | `/media/:fileName` | Generated image files |
 
 The generate response contains `storyId`, `story` (`title`, `text` as body paragraphs without the heading, `moral`, `closing`, `readingMinutes`), `media[]` (each asset with `url` and `afterParagraph`: the paragraph of `story.text`, split by blank lines, that the image follows), `usage` and `steps`.
+
+### Series
+
+A series is a story with `format: story_arc_part` and a row in `story_arcs` (length, status, topic, word count, style seed). Its parts live in `story_parts` (`title`, `closing`, `summary`, `read`).
+
+- `POST /v1/stories/generate` with `arcLength` writes part 1 and answers with `storyId`, `partNumber: 1` and `arc: { length, partsReady, status }`. `POST /v1/stories/:id/parts` writes the next part for the same heroes, world, topic and length; the response has the same shape (`partNumber`, `arc`). The parent asks for each part, so a series moves at the pace of the evenings (no daily lock yet). Part `length` completes the series (`status: completed`), gives it its `moral`, and further requests get **409** `arc_completed`.
+- Consistency without long contexts: part 1 also returns `[SEED: …]` (the recurring characters and the setting, in English), and every part returns `[SUMMARY: …]`. The next part gets the seed, the series title and the summaries of the latest three parts; the seed is also written into every illustration prompt. The markers are stored, never shown.
+- Limits: a series needs a paid tier (**402** `upgrade_required`, feature `story_arc`); the number of unfinished series is capped (Family 1, Family+ 3; **402** `limit_reached`, feature `story_arc`, `limit`). `GET /entitlements` shows `limits.activeArcs` and `activeArcsUsed`. Parts have no quota of their own. Finishing a series frees its slot.
+- Heroes: a series needs saved profiles (inline `childProfile` is rejected). If its profiles are deleted, the next part answers **409** `heroes_missing`. Two simultaneous requests for the same part: one wins, the other gets **409** `part_conflict`. A failed part (Claude, safety) changes nothing and can be retried.
+- Reading progress: the app sends `PATCH /stories/:id {"readPart": n}` when a part is finished; `readProgress` becomes the share of read parts.
 
 ## Verify
 
