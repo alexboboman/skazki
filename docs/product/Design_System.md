@@ -2,7 +2,7 @@
 
 **Версия:** 0.1  
 **Статус:** Draft  
-**Платформа MVP:** iPadOS / SwiftUI
+**Платформа MVP:** iOS (iPhone) / SwiftUI. iPad — следующий этап, размеры ниже помечены отдельно
 
 ---
 
@@ -47,16 +47,21 @@ Nightlight mode должен снижать яркость и уходить в 
 
 ---
 
+Актуальные значения цветов, радиусов и анимаций v1 лежат в `docs/design/prototype/styles.css` (ночная палитра: `--bg-0 #100c1f`, `--bg-1 #1a1430`, `--accent #B8A7FF`, `--gold #E6A85C`, `--text #F6EBDD`).
+
 ## 4. Typography
 
-| Role | iPad Size | Weight | Notes |
-|---|---:|---|---|
-| Display | 34 | Semibold | Onboarding, paywall hero |
-| Title | 28 | Semibold | Заголовки экранов |
-| Section Title | 22 | Semibold | Блоки Home/Library |
-| Body | 19 | Regular | Основной UI-текст |
-| Reading Body | 23–30 | Regular | Настраивается родителем |
-| Caption | 15 | Regular | Подсказки, metadata |
+Шрифты по прототипу: **Lora** (serif: заголовки, поля ввода, текст сказки) и **Onest** (sans: интерфейс). Оба открытые, нужно подключить в бандл iOS-приложения.
+
+| Role | iPhone (v1) | iPad (позже) | Шрифт, начертание |
+|---|---:|---:|---|
+| Display | 33 | 34 | Lora Medium |
+| Title | 27 | 28 | Lora Medium |
+| Section Title | 22 | 22 | Lora Medium |
+| Body | 16.5 | 19 | Onest Regular |
+| Reading Body | 19, настраивается | 23–30 | Lora Regular, межстрочный 1.72 |
+| Caption | 13.5 | 15 | Onest Regular |
+| Kicker | 13, капс, трекинг 0.18em | 13 | Onest SemiBold |
 
 SwiftUI должен поддерживать Dynamic Type. Reading Mode обязан иметь отдельный control для размера текста.
 
@@ -64,7 +69,13 @@ SwiftUI должен поддерживать Dynamic Type. Reading Mode обя�
 
 ## 5. Layout
 
-**iPad baseline:**
+**iPhone baseline (прототип, экран 402×874):**
+- Page padding: `26 pt`
+- Card radius: `26 pt`, tile radius: `22 pt`, кнопки и чипы: pill, высота кнопки `56 pt`
+- Card padding: `18–22 pt`
+- Фон экрана: радиальный градиент `bg-2 → bg-1 → bg-0`, поверх «северное сияние» (размытые пятна) и мерцающие звёзды
+
+**iPad (следующий этап):**
 - Max content width: `760–900 pt`
 - Card radius: `24 pt`
 - Primary page padding: `32 pt`
@@ -72,7 +83,7 @@ SwiftUI должен поддерживать Dynamic Type. Reading Mode обя�
 - Vertical rhythm: `12 / 16 / 24 / 32 pt`
 
 **Navigation:**
-- `TabView` для Home, Library, Settings.
+- Нижняя панель из прототипа: «Сегодня», «Сказки», «Сочинить» (центральная золотая кнопка), «Дети»; настройки открываются из «Сегодня». Прежний `TabView` для Home, Library, Settings остаётся как вариант для iPad.
 - Reading Mode — full-screen detail.
 - Paywall — modal sheet/full-screen в зависимости от контекста.
 

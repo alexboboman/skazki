@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "story_rejected",
+    "message": "Story was rejected by the safety check: страшная сцена"
+  }
+}

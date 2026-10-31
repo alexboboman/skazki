@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "limit_reached",
+    "message": "At most 1 child profile(s) are allowed on this plan.",
+    "feature": "profiles",
+    "tier": "free",
+    "limit": 1
+  }
+}

@@ -1,0 +1,40 @@
+# XcodeGen spec: `brew install xcodegen && cd ios && xcodegen` creates Skazochnik.xcodeproj.
+# All code lives in the Swift package (Sources/); the app target only holds the entry point.
+name: Skazochnik
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  Skazochnik:
+    path: .
+targets:
+  Skazochnik:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: Skazochnik
+        product: SkazochnikCore
+      - package: Skazochnik
+        product: SkazochnikUI
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Сказочник
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        API_BASE_URL: http://localhost:3000
+        # Lets the Simulator talk to the local API over plain http.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.skazochnik
+        TARGETED_DEVICE_FAMILY: "1" # iPhone only for now, iPad later
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"

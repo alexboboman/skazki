@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": "limit_reached",
+    "message": "Limit for quick_story reached on the free plan.",
+    "feature": "quick_story",
+    "tier": "free",
+    "limit": 3,
+    "resetsAt": "2026-11-02T00:00:00.000Z"
+  }
+}

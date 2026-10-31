@@ -11,7 +11,7 @@
 
 | Слой | Технология | Обоснование |
 |---|---|---|
-| UI Framework | **SwiftUI** | Нативный iPad UI, анимации, поддержка Dynamic Type |
+| UI Framework | **SwiftUI** | Нативный iPhone UI (iPad позже), анимации, поддержка Dynamic Type |
 | Навигация | NavigationStack + TabView | iOS 16+ стандарт |
 | Локальное хранилище | SwiftData (iOS 17+) | Современная замена CoreData, удобно для профилей и историй |
 | iCloud sync | CloudKit (через SwiftData) | Синхронизация между устройствами семьи |
@@ -56,7 +56,7 @@
 ## 2. Архитектура системы (высокий уровень)
 
 ```
-[iPad App / SwiftUI]
+[iOS App / SwiftUI]
       │  HTTPS + JWT
       ▼
 [API Gateway — Hono/Node.js]
@@ -285,7 +285,7 @@ Claude должен возвращать структурированные ма
 - [ ] Backend: Media Service (`media_assets`, R2, variants) — сейчас `MediaStore` с локальной папкой (`apps/api/.media`) и `GET /v1/media/:fileName`; R2 и таблица `media_assets` впереди
 - [ ] Backend: StoreKit 2 webhook integration + App Store Server Notifications v2
 - [ ] Backend: Analytics Service для server-side событий
-- [ ] iOS: Онбординг + создание профиля ребёнка
+- [x] iOS: Онбординг + создание профиля ребёнка — экраны и API-клиент в `ios/`, без запуска в симуляторе (нет Xcode на dev-машине)
 - [ ] iOS: Экран генерации сказки (Quick Story)
 - [ ] iOS: Reading Mode (текст + иллюстрации)
 - [ ] iOS: Библиотека историй
@@ -402,7 +402,7 @@ Entitlement Service остаётся source of truth: даже если клие
 ### 9.5 Рекомендуемая структура репозитория
 
 ```
-/apps/ios          — SwiftUI, StoreKit, AppsFlyer, analytics SDK
+/ios                — SwiftUI, StoreKit, AppsFlyer, analytics SDK (Swift Package + XcodeGen)
 /apps/api          — Hono, auth, entitlements, story APIs
 /packages/worker   — BullMQ step pipeline
 /packages/shared   — event names, entitlements, API types

@@ -1,0 +1,29 @@
+{
+  "tier": "family",
+  "source": "trial",
+  "trialEndsAt": "2026-11-07T19:14:00.262Z",
+  "limits": {
+    "profiles": {
+      "limit": 3,
+      "used": 0
+    },
+    "activeArcs": 1,
+    "imageQuality": "hd"
+  },
+  "quotas": [
+    {
+      "feature": "classic_story",
+      "period": "month",
+      "limit": 100,
+      "used": 0,
+      "resetsAt": "2026-11-01T00:00:00.000Z"
+    },
+    {
+      "feature": "quick_story",
+      "period": "month",
+      "limit": 100,
+      "used": 0,
+      "resetsAt": "2026-11-01T00:00:00.000Z"
+    }
+  ]
+}

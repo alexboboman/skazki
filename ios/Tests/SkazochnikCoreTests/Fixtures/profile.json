@@ -1,0 +1,21 @@
+{
+  "id": "89b777e8-3fba-4d87-b743-4f018af1322b",
+  "name": "Аня",
+  "age": 5,
+  "gender": "girl",
+  "appearance": {
+    "hair": 3,
+    "skin": 1,
+    "outfit": 0,
+    "hairStyle": "long"
+  },
+  "interests": [
+    "Феи",
+    "Море"
+  ],
+  "worlds": [
+    "forest"
+  ],
+  "language": "Русский",
+  "createdAt": "2026-10-31T19:14:00.275Z"
+}

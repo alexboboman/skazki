@@ -1,0 +1,18 @@
+{
+  "stories": [
+    {
+      "id": "ddb0d4f0-7f46-4e87-b514-ba1bb251d244",
+      "title": "Саша и дракончик",
+      "format": "quick_story",
+      "world": "forest",
+      "heroIds": [
+        "89b777e8-3fba-4d87-b743-4f018af1322b"
+      ],
+      "coverImageUrl": "/v1/media/51a355d7-9d8c-45f2-a21a-d167759df7a2.svg",
+      "readingMinutes": 1,
+      "favorite": true,
+      "readProgress": 0.62,
+      "createdAt": "2026-10-31T19:14:00.282Z"
+    }
+  ]
+}

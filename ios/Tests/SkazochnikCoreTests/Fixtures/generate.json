@@ -1,0 +1,71 @@
+{
+  "story": {
+    "title": "Саша и дракончик",
+    "text": "Жил-был Саша.\n\nОни подружились.\n\nКонец.",
+    "moral": "Дружба делает мир теплее.",
+    "closing": "Спи сладко.",
+    "readingMinutes": 1
+  },
+  "media": [
+    {
+      "id": "51a355d7-9d8c-45f2-a21a-d167759df7a2",
+      "type": "image",
+      "variant": "standard",
+      "provider": "mock",
+      "url": "/v1/media/51a355d7-9d8c-45f2-a21a-d167759df7a2.svg",
+      "contentType": "image/svg+xml",
+      "prompt": "Children's book illustration, soft watercolor style, warm colors.\nCharacters: Аня, a 5-year-old girl with light skin, long blond hair, wearing a purple outfit.\nScene: boy and dragon.\nWorld: волшебный лес с говорящими животными.\nAge-appropriate, gentle, no scary elements, no text or letters in the image.\nStyle: Studio Ghibli inspired, storybook.",
+      "afterParagraph": 1
+    },
+    {
+      "id": "067f04e0-12f9-406f-b652-b6ea4fc6a3d6",
+      "type": "image",
+      "variant": "standard",
+      "provider": "mock",
+      "url": "/v1/media/067f04e0-12f9-406f-b652-b6ea4fc6a3d6.svg",
+      "contentType": "image/svg+xml",
+      "prompt": "Children's book illustration, soft watercolor style, warm colors.\nCharacters: Аня, a 5-year-old girl with light skin, long blond hair, wearing a purple outfit.\nScene: stars.\nWorld: волшебный лес с говорящими животными.\nAge-appropriate, gentle, no scary elements, no text or letters in the image.\nStyle: Studio Ghibli inspired, storybook.",
+      "afterParagraph": 2
+    }
+  ],
+  "usage": {
+    "inputTokens": 10,
+    "outputTokens": 20,
+    "estimatedCostUsd": 0.001
+  },
+  "mediaPlan": {
+    "requestedTypes": [
+      "image"
+    ],
+    "generatedTypes": [
+      "image"
+    ],
+    "note": "Text and images generated. Audio and video are not implemented yet."
+  },
+  "steps": [
+    {
+      "name": "generate_text",
+      "status": "succeeded",
+      "provider": "anthropic",
+      "durationMs": 0
+    },
+    {
+      "name": "safety_check",
+      "status": "succeeded",
+      "provider": "anthropic",
+      "durationMs": 0
+    },
+    {
+      "name": "parse_media_prompts",
+      "status": "succeeded",
+      "durationMs": 0
+    },
+    {
+      "name": "generate_images",
+      "status": "succeeded",
+      "provider": "mock",
+      "durationMs": 1
+    }
+  ],
+  "storyId": "ddb0d4f0-7f46-4e87-b514-ba1bb251d244"
+}

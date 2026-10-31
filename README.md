@@ -7,6 +7,7 @@ Early prototype for the "Сказочник" product.
 The project now has a small API scaffold:
 
 - `apps/api` — Hono API prototype.
+- `ios/` — iPhone app in SwiftUI (iPad later); onboarding and the API client are built, see `ios/README.md`.
 - `packages/shared` — shared request/response contracts.
 - `scripts/test_story.js` — old one-off Claude prompt spike.
 - `docs/product` — PRD and technical architecture.
@@ -40,6 +41,7 @@ Keep the root small and predictable:
 ```text
 apps/
   api/              Hono API prototype
+ios/                SwiftUI app (Swift Package + XcodeGen spec), see ios/README.md
 packages/
   shared/           Shared TypeScript contracts
 docs/

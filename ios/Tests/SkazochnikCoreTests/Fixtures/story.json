@@ -1,0 +1,45 @@
+{
+  "id": "ddb0d4f0-7f46-4e87-b514-ba1bb251d244",
+  "title": "Саша и дракончик",
+  "format": "quick_story",
+  "world": "forest",
+  "heroIds": [
+    "89b777e8-3fba-4d87-b743-4f018af1322b"
+  ],
+  "coverImageUrl": "/v1/media/51a355d7-9d8c-45f2-a21a-d167759df7a2.svg",
+  "readingMinutes": 1,
+  "favorite": true,
+  "readProgress": 0.62,
+  "createdAt": "2026-10-31T19:14:00.282Z",
+  "moral": "Дружба делает мир теплее.",
+  "closing": "Спи сладко.",
+  "totalParts": 1,
+  "parts": [
+    {
+      "partNumber": 1,
+      "text": "Жил-был Саша.\n\nОни подружились.\n\nКонец.",
+      "media": [
+        {
+          "id": "51a355d7-9d8c-45f2-a21a-d167759df7a2",
+          "type": "image",
+          "variant": "standard",
+          "provider": "mock",
+          "url": "/v1/media/51a355d7-9d8c-45f2-a21a-d167759df7a2.svg",
+          "contentType": "image/svg+xml",
+          "prompt": "Children's book illustration, soft watercolor style, warm colors.\nCharacters: Аня, a 5-year-old girl with light skin, long blond hair, wearing a purple outfit.\nScene: boy and dragon.\nWorld: волшебный лес с говорящими животными.\nAge-appropriate, gentle, no scary elements, no text or letters in the image.\nStyle: Studio Ghibli inspired, storybook.",
+          "afterParagraph": 1
+        },
+        {
+          "id": "067f04e0-12f9-406f-b652-b6ea4fc6a3d6",
+          "type": "image",
+          "variant": "standard",
+          "provider": "mock",
+          "url": "/v1/media/067f04e0-12f9-406f-b652-b6ea4fc6a3d6.svg",
+          "contentType": "image/svg+xml",
+          "prompt": "Children's book illustration, soft watercolor style, warm colors.\nCharacters: Аня, a 5-year-old girl with light skin, long blond hair, wearing a purple outfit.\nScene: stars.\nWorld: волшебный лес с говорящими животными.\nAge-appropriate, gentle, no scary elements, no text or letters in the image.\nStyle: Studio Ghibli inspired, storybook.",
+          "afterParagraph": 2
+        }
+      ]
+    }
+  ]
+}
