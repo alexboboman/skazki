@@ -60,16 +60,6 @@ final class AVSpeechBackend: NSObject, SpeechBackend, AVSpeechSynthesizerDelegat
         }
     }
 
-    private func activateAudioSession() {
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
-        #endif
-    }
-
-    private func deactivateAudioSession() {
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        #endif
-    }
+    private func activateAudioSession() { AudioSession.activate() }
+    private func deactivateAudioSession() { AudioSession.deactivate() }
 }

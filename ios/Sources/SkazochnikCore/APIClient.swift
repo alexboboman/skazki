@@ -26,6 +26,11 @@ public enum APIError: Error, Equatable, Sendable {
     case decoding(String)
 }
 
+public enum NarrationStatus: Equatable, Sendable {
+    case processing
+    case ready(MediaAsset)
+}
+
 public protocol SessionStore: Sendable {
     func loadToken() -> String?
     func saveToken(_ token: String?)
@@ -125,6 +130,20 @@ public struct APIClient: Sendable {
     public func generateNextPart(storyId: String, mediaOptions: MediaOptions = MediaOptions(imageQuality: .hd)) async throws -> GenerateStoryResponse {
         struct Body: Encodable { var mediaOptions: MediaOptions }
         return try await send("POST", "/v1/stories/\(storyId)/parts", body: Body(mediaOptions: mediaOptions))
+    }
+
+    /// Asks for the premium narration of a part. The first call starts the work (about a minute), so the
+    /// answer is `.processing` until the file exists; ask again every few seconds.
+    public func narration(storyId: String, part: Int) async throws -> NarrationStatus {
+        struct Body: Encodable { var part: Int }
+        let data = try await perform("POST", "/v1/stories/\(storyId)/audio", query: [], body: try JSONEncoder().encode(Body(part: part)), authorized: true)
+        if let asset = try? Self.decoder.decode(MediaAsset.self, from: data), asset.type == "audio" { return .ready(asset) }
+        return .processing
+    }
+
+    /// Downloads a media file (`/v1/media/<file>`).
+    public func download(_ path: String) async throws -> Data {
+        try await perform("GET", path, query: [], body: nil, authorized: false)
     }
 
     public func stories(profileId: String? = nil, favorite: Bool? = nil) async throws -> [StorySummary] {

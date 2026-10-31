@@ -7,6 +7,8 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var profiles: [ChildProfile]
     @Published public private(set) var stories: [StorySummary]
     @Published public private(set) var isOffline = false
+    /// Plan limits of the account; nil until the first answer of the server.
+    @Published public private(set) var entitlements: Entitlements?
     @Published public private(set) var isLoading = false
     /// The server no longer recognises this account (token expired or the account is gone).
     @Published public private(set) var sessionExpired = false
@@ -133,6 +135,7 @@ public final class AppModel: ObservableObject {
             profiles = p.value
             stories = s.value
             isOffline = p.fromCache || s.fromCache
+            if !isOffline, let fresh = try? await client.entitlements() { entitlements = fresh }
         } catch APIError.unauthorized {
             sessionExpired = true
         } catch {
@@ -153,6 +156,17 @@ public final class AppModel: ObservableObject {
     func readable(_ summary: StorySummary) async throws -> ReadableStory {
         let loaded = try await repository.story(id: summary.id)
         return ReadableStory(story: loaded.value)
+    }
+
+    /// The neural voice for a saved story; locked (but offered) on plans without it.
+    func premiumVoice(for story: ReadableStory) -> PremiumVoice? {
+        guard let id = story.storyId else { return nil }
+        let part = story.partNumber ?? 1
+        let known = story.audio
+        let fetcher = NarrationFetcher(client: client, directory: NarrationFetcher.defaultDirectory)
+        return PremiumVoice(isAvailable: entitlements?.limits.premiumVoice == true) {
+            try await fetcher.file(storyId: id, part: part, known: known)
+        }
     }
 
     /// The full story of a series (all parts written so far).

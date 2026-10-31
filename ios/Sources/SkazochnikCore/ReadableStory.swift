@@ -25,6 +25,9 @@ public struct ReadableStory: Equatable, Sendable {
     public var partCount: Int?
     public var seriesTitle: String?
 
+    /// Premium narration of this story, once it has been voiced.
+    public var audio: MediaAsset?
+
     public var isSeriesPart: Bool { partNumber != nil }
     public var isLastPart: Bool { partNumber != nil && partNumber == partCount }
 
@@ -98,6 +101,7 @@ public struct ReadableStory: Equatable, Sendable {
             closing: (isSeries ? part?.closing : nil) ?? story.closing,
             readingMinutes: story.readingMinutes
         )
+        audio = part?.media.first { $0.type == "audio" }
         if let arc = story.arc, let part {
             partNumber = part.partNumber
             partCount = arc.length
@@ -117,7 +121,7 @@ public struct ReadableStory: Equatable, Sendable {
             let number = offset + 1
             blocks.append(.paragraph(index: number, text: paragraph))
             let isLast = number == paragraphs.count
-            for asset in media where asset.afterParagraph == number || (isLast && asset.afterParagraph > paragraphs.count) {
+            for asset in media where asset.type == "image" && (asset.afterParagraph == number || (isLast && asset.afterParagraph > paragraphs.count)) {
                 blocks.append(.illustration(asset))
             }
         }

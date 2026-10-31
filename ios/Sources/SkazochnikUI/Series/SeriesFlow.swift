@@ -74,7 +74,8 @@ struct SeriesFlow: View {
             },
             favorite: summary?.favorite,
             onToggleFavorite: { if let summary { Task { await app.toggleFavorite(summary) } } },
-            finale: finale(for: readable)
+            finale: finale(for: readable),
+            premiumVoice: app.premiumVoice(for: readable)
         )
     }
 

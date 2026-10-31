@@ -79,7 +79,8 @@ struct CreateFlow: View {
                             Task { await app.toggleFavorite(summary) }
                         }
                     },
-                    finale: seriesFinale(for: story)
+                    finale: seriesFinale(for: story),
+                    premiumVoice: app.premiumVoice(for: story)
                 )
             case .paywall(let info, let main):
                 // Purchasing arrives with StoreKit; both buttons just go back to the form for now.

@@ -130,6 +130,8 @@ public struct Entitlements: Codable, Equatable, Sendable {
         public var activeArcs: Int
         public var activeArcsUsed: Int?
         public var imageQuality: String
+        /// Neural narration voice (Family+); the system voice needs no plan.
+        public var premiumVoice: Bool?
     }
 
     public var tier: Tier

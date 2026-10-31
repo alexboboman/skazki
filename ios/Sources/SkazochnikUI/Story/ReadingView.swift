@@ -47,7 +47,8 @@ public struct ReadingView: View {
         onUpsell: (() -> Void)? = nil,
         favorite: Bool? = nil,
         onToggleFavorite: @escaping () -> Void = {},
-        finale: SeriesFinale? = nil
+        finale: SeriesFinale? = nil,
+        premiumVoice: PremiumVoice? = nil
     ) {
         self.story = story
         self.hero = hero
@@ -58,7 +59,7 @@ public struct ReadingView: View {
         self.favorite = favorite
         self.onToggleFavorite = onToggleFavorite
         self.finale = finale
-        _narration = StateObject(wrappedValue: NarrationController(story: story))
+        _narration = StateObject(wrappedValue: NarrationController(story: story, premium: premiumVoice))
     }
 
     private var bodySize: CGFloat { Self.fontSizes[min(max(fontStep, 0), Self.fontSizes.count - 1)] }

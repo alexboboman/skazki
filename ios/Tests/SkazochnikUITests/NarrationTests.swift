@@ -31,6 +31,30 @@ private final class FakeSpeech: SpeechBackend {
     }
 }
 
+/// Stands in for the file player.
+@MainActor
+private final class FakePlayer: FilePlayback {
+    private(set) var played: [(url: URL, rate: Double)] = []
+    private(set) var paused = false
+    private(set) var seeks: [Double] = []
+    private(set) var rates: [Double] = []
+    private(set) var stops = 0
+    private var finish: (@MainActor () -> Void)?
+
+    func play(_ url: URL, rate: Double, onFinished: @escaping @MainActor () -> Void) {
+        played.append((url, rate))
+        finish = onFinished
+        paused = false
+    }
+
+    func pause() { paused = true }
+    func resume() { paused = false }
+    func stop() { stops += 1; finish = nil }
+    func seek(by seconds: Double) { seeks.append(seconds) }
+    func setRate(_ rate: Double) { rates.append(rate) }
+    func finishFile() { let callback = finish; finish = nil; callback?() }
+}
+
 @MainActor
 @Suite struct NarrationTests {
     private let script = [
@@ -223,5 +247,160 @@ private final class FakeSpeech: SpeechBackend {
 
         #expect(narration.state == .playing)
         #expect(narration.sleepMinutes == nil)
+    }
+}
+
+// MARK: Premium voice
+
+@MainActor
+@Suite struct PremiumNarrationTests {
+    private let script = [
+        NarrationSegment(text: "Название."),
+        NarrationSegment(text: "Абзац.", paragraph: 1),
+    ]
+    private let file = URL(fileURLWithPath: "/tmp/narration.mp3")
+
+    private func make(
+        available: Bool = true,
+        prepare: @escaping @Sendable () async throws -> URL
+    ) -> (NarrationController, FakeSpeech, FakePlayer) {
+        let speech = FakeSpeech()
+        let player = FakePlayer()
+        let controller = NarrationController(
+            script: script,
+            backend: speech,
+            premium: PremiumVoice(isAvailable: available, prepare: prepare),
+            player: player,
+            minuteLength: .milliseconds(20)
+        )
+        return (controller, speech, player)
+    }
+
+    private func settle(_ narration: NarrationController) async {
+        for _ in 0..<200 where narration.isPreparing { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    @Test func premiumIsTheDefaultVoiceWhenThePlanHasIt() {
+        #expect(make { URL(fileURLWithPath: "/x") }.0.voice == .premium)
+        #expect(make(available: false) { URL(fileURLWithPath: "/x") }.0.voice == .device)
+        let plain = NarrationController(script: script, backend: FakeSpeech(), player: FakePlayer())
+        #expect(!plain.offersPremium)
+        #expect(plain.voice == .device)
+    }
+
+    @Test func playingPreparesTheFileThenPlaysIt() async {
+        let url = file
+        let (narration, speech, player) = make { try await Task.sleep(for: .milliseconds(20)); return url }
+
+        narration.play()
+        #expect(narration.isPreparing)
+        #expect(narration.isActive)
+        #expect(narration.state == .idle)
+        await settle(narration)
+
+        #expect(!narration.isPreparing)
+        #expect(narration.state == .playing)
+        #expect(player.played.map(\.url) == [url])
+        #expect(speech.spoken.isEmpty, "the system voice stays silent")
+        #expect(narration.currentParagraph == nil, "there is no paragraph highlight for the file")
+    }
+
+    @Test func pauseSeekSpeedAndTheEndOfTheFile() async {
+        let url = file
+        let (narration, _, player) = make { url }
+        narration.play()
+        await settle(narration)
+
+        narration.pause()
+        #expect(narration.state == .paused)
+        #expect(player.paused)
+        narration.play()
+        #expect(!player.paused)
+
+        narration.skip(1)
+        narration.skip(-1)
+        #expect(player.seeks == [15, -15])
+
+        narration.setSpeed(.fast)
+        #expect(player.rates == [1.2])
+
+        player.finishFile()
+        #expect(narration.state == .idle)
+        #expect(narration.isFinished)
+    }
+
+    @Test func cancellingWhilePreparingStopsEverything() async {
+        let url = file
+        let (narration, speech, player) = make { try await Task.sleep(for: .milliseconds(60)); return url }
+        narration.play()
+        narration.stop()
+        try? await Task.sleep(for: .milliseconds(100))
+
+        #expect(!narration.isPreparing)
+        #expect(narration.state == .idle)
+        #expect(player.played.isEmpty, "a cancelled preparation must not start playing later")
+        #expect(speech.spoken.isEmpty)
+    }
+
+    @Test func aFailedPreparationFallsBackToTheSystemVoice() async {
+        let (narration, speech, player) = make { throw NarrationError.failed("down") }
+        narration.play()
+        await settle(narration)
+
+        #expect(narration.voice == .device)
+        #expect(narration.state == .playing)
+        #expect(speech.spoken.map(\.text) == ["Название."])
+        #expect(player.played.isEmpty)
+        #expect(narration.notice?.contains("голосом устройства") == true)
+    }
+
+    @Test func aMissingPlanIsExplainedInTheFallback() async {
+        let (narration, _, _) = make { throw NarrationError.needsPlan }
+        narration.play()
+        await settle(narration)
+        #expect(narration.notice?.contains("Family+") == true)
+    }
+
+    @Test func aLockedVoiceIsOfferedButCannotBeChosen() {
+        let (narration, speech, _) = make(available: false) { URL(fileURLWithPath: "/x") }
+        #expect(narration.premiumLocked)
+
+        narration.select(.premium)
+        #expect(narration.voice == .device)
+        #expect(narration.notice?.contains("Family+") == true)
+
+        narration.play()
+        #expect(speech.spoken.count == 1)
+    }
+
+    @Test func switchingVoiceStartsOverAndKeepsTheSleepTimer() async {
+        let url = file
+        let (narration, speech, player) = make { url }
+        narration.play()
+        await settle(narration)
+        narration.setSleepTimer(minutes: 30)
+
+        narration.select(.device)
+        #expect(narration.voice == .device)
+        #expect(player.stops >= 1)
+        #expect(speech.spoken.map(\.text) == ["Название."])
+        #expect(narration.sleepMinutes == 30)
+
+        narration.select(.premium)
+        await settle(narration)
+        #expect(player.played.count == 2)
+        #expect(narration.sleepMinutes == 30)
+    }
+
+    @Test func theSleepTimerStopsThePremiumNarrationToo() async {
+        let url = file
+        let (narration, _, player) = make { url }
+        narration.play()
+        await settle(narration)
+        narration.setSleepTimer(minutes: 1)
+
+        for _ in 0..<100 where narration.state != .idle { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(narration.state == .idle)
+        #expect(player.stops >= 1)
     }
 }

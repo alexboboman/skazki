@@ -84,7 +84,8 @@ public struct MainView: View {
                 favorite: app.stories.first { $0.id == id }?.favorite,
                 onToggleFavorite: {
                     if let summary = app.stories.first(where: { $0.id == id }) { Task { await app.toggleFavorite(summary) } }
-                }
+                },
+                premiumVoice: app.premiumVoice(for: story)
             )
             .background(Theme.bg0.ignoresSafeArea())
             .transition(.move(edge: .trailing))
