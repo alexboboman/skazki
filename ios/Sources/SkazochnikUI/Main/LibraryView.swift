@@ -17,7 +17,7 @@ struct LibraryView: View {
 
         AdaptiveScroll {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Сказки").display(30).frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading).padding(.bottom, 18)
+                Text("Сказки").display(30, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 18)
 
                 HStack(spacing: 0) {
                     segment("Все", selected: !favoritesOnly) { favoritesOnly = false }

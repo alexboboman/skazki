@@ -16,10 +16,13 @@ struct StoryThumb: View {
             .frame(height: height)
             .overlay {
                 ZStack(alignment: .bottom) {
-                    WorldInfo.named(WorldID(rawValue: story.world ?? "") ?? .forest).gradient
-                    StarField(count: 8, seed: 5, animated: false)
-                    Ellipse().fill(.black.opacity(0.28)).frame(width: 150, height: 90).offset(x: -50, y: 56)
-                    Ellipse().fill(.black.opacity(0.2)).frame(width: 150, height: 100).offset(x: 60, y: 62)
+                    WorldInfo.named(WorldID(rawValue: story.world ?? "") ?? .forest).gradient.overlay {
+                        ZStack {
+                            StarField(count: 8, seed: 5, animated: false)
+                            Ellipse().fill(.black.opacity(0.28)).frame(width: 150, height: 90).offset(x: -50, y: 56)
+                            Ellipse().fill(.black.opacity(0.2)).frame(width: 150, height: 100).offset(x: 60, y: 62)
+                        }
+                    }
                     HeroAvatarView(appearance: hero.appearance, size: height * 0.46).padding(.bottom, 4)
                     if let coverURL {
                         AsyncImage(url: coverURL) { phase in

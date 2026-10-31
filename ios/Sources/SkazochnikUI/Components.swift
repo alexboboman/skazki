@@ -104,11 +104,11 @@ public extension View {
             .foregroundStyle(Theme.accent)
     }
 
-    func display(_ size: CGFloat = 33) -> some View {
+    func display(_ size: CGFloat = 33, alignment: TextAlignment = .center) -> some View {
         font(Theme.serif(size))
             .foregroundStyle(Theme.text)
             .lineSpacing(2)
-            .multilineTextAlignment(.center)
+            .multilineTextAlignment(alignment)
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -382,5 +382,33 @@ struct ClipToProposedWidth: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: .unspecified)
+    }
+}
+
+/// Pill-shaped segmented control of the design (length, filters).
+struct PillSegments<Value: Hashable>: View {
+    let options: [(value: Value, title: String)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let selected = option.value == selection
+                Button { withAnimation(.easeOut(duration: 0.2)) { selection = option.value } } label: {
+                    Text(option.title)
+                        .font(Theme.sans(14.5, weight: .medium))
+                        .foregroundStyle(selected ? Color(hex: 0x1A1330) : Theme.text2)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(selected ? Theme.accent : .clear, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(Theme.card, in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.border))
     }
 }

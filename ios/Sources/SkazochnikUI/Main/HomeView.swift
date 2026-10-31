@@ -22,7 +22,7 @@ struct HomeView: View {
                 }
                 .padding(.bottom, 22)
 
-                Text("Что почитаем сегодня?").display(30).frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading).padding(.bottom, 20)
+                Text("Что почитаем сегодня?").display(30, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 20)
 
                 if app.isOffline { OfflineNote().padding(.bottom, 14) }
 

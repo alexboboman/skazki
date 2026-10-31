@@ -9,7 +9,7 @@ struct KidsView: View {
     var body: some View {
         AdaptiveScroll {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Дети").display(30).frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading).padding(.bottom, 6)
+                Text("Дети").display(30, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 6)
                 Text("У каждого — свой герой, темы и полка сказок.").captionStyle().padding(.bottom, 22)
 
                 VStack(spacing: 12) {

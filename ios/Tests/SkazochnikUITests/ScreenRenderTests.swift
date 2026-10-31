@@ -123,5 +123,15 @@ import AppKit
             mainScreen(.library) { LibraryView(app: Sample.appModel(stories: []), onOpen: { _ in }, onFavorite: { _ in }) }
         }
     }
+
+    // MARK: Create
+
+    @Test func rendersCreateScreen() throws {
+        let app = Sample.appModel()
+        try render("30-create") { CreateView(app: app, profile: Sample.anya, onClose: {}, onCreate: { _ in }) }
+        try render("31-create-one-child") {
+            CreateView(app: Sample.appModel(profiles: [Sample.anya]), profile: Sample.anya, onClose: {}, onCreate: { _ in })
+        }
+    }
 }
 #endif

@@ -351,21 +351,41 @@ struct WorldTile: View {
     let world: WorldInfo
     var selected = false
     var height: CGFloat = 116
+    /// Smaller card for the horizontal picker of «Сочинить»: 14 pt name, no checkmark.
+    var compact = false
 
     var body: some View {
+        // The scene is an overlay so that only `height` decides the size of the tile.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .overlay { scene }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(selected ? Theme.accent : Theme.border, lineWidth: selected ? 2 : 1)
+        )
+    }
+
+    private var scene: some View {
         ZStack(alignment: .bottomLeading) {
-            world.gradient
-            StarField(count: 10, seed: 3, animated: false)
+            // Decoration sits in an overlay: shapes bigger than the tile must not change its layout.
+            world.gradient.overlay {
+                ZStack {
+                    StarField(count: 10, seed: 3, animated: false)
+                    Ellipse().fill(.black.opacity(0.28)).frame(width: 110, height: 100).offset(x: -40, y: 70)
+                    Ellipse().fill(.black.opacity(0.2)).frame(width: 110, height: 110).offset(x: 70, y: 75)
+                }
+            }
             MoonIcon(size: 24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(12)
-            Ellipse().fill(.black.opacity(0.28)).frame(width: 110, height: 100).offset(x: -40, y: 70)
-            Ellipse().fill(.black.opacity(0.2)).frame(width: 110, height: 110).offset(x: 70, y: 75)
             Text(world.name)
-                .font(Theme.serif(16.5))
+                .font(Theme.serif(compact ? 14 : 16.5))
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.6), radius: 3, y: 1)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 13)
-            if selected {
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, compact ? 11 : 14)
+                .padding(.bottom, compact ? 10 : 13)
+            if selected && !compact {
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color(hex: 0x1A1330))
@@ -375,11 +395,5 @@ struct WorldTile: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .frame(height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(selected ? Theme.accent : Theme.border, lineWidth: selected ? 2 : 1)
-        )
     }
 }

@@ -76,7 +76,7 @@ public struct MainView: View {
             .background(Theme.bg0.ignoresSafeArea())
             .transition(.move(edge: .trailing))
         case .create(let profile):
-            QuickCreateFlow(app: app, profile: profile) { overlay = nil }
+            CreateFlow(app: app, profile: profile) { overlay = nil }
                 .background(Theme.bg0.ignoresSafeArea())
                 .transition(.move(edge: .bottom))
         case .addChild:
