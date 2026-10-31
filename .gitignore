@@ -6,3 +6,6 @@ dist/
 coverage/
 npm-debug.log*
 .DS_Store
+
+# Local generated media (LocalMediaStore)
+apps/api/.media/

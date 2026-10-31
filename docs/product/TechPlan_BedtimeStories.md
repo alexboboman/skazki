@@ -275,8 +275,8 @@ Claude должен возвращать структурированные ма
 ### Phase 1 — MVP (6–8 нед)
 - [ ] Backend: Auth (Apple Sign In + JWT)
 - [ ] Backend: Entitlement Service + usage counters
-- [ ] Backend: Story generation worker (Claude + Image) как step-based pipeline
-- [ ] Backend: Media Service (`media_assets`, R2, variants)
+- [ ] Backend: Story generation worker (Claude + Image) как step-based pipeline — шаги `generate_text` → `parse_media_prompts` → `generate_images` реализованы inline в API (`apps/api/src/services/storyPipeline.ts`), осталось вынести в BullMQ-воркер, добавить `build_prompt`, `safety_check`, `persist_story_and_media`
+- [ ] Backend: Media Service (`media_assets`, R2, variants) — сейчас `MediaStore` с локальной папкой (`apps/api/.media`) и `GET /v1/media/:fileName`; R2 и таблица `media_assets` впереди
 - [ ] Backend: StoreKit 2 webhook integration + App Store Server Notifications v2
 - [ ] Backend: Analytics Service для server-side событий
 - [ ] iOS: Онбординг + создание профиля ребёнка

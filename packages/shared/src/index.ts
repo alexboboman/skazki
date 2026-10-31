@@ -30,17 +30,43 @@ export interface StoryUsage {
   estimatedCostUsd: number;
 }
 
+export type PipelineStepName = "generate_text" | "parse_media_prompts" | "generate_images";
+
+export type PipelineStepStatus = "succeeded" | "failed" | "skipped";
+
+export interface PipelineStep {
+  name: PipelineStepName;
+  status: PipelineStepStatus;
+  provider?: string;
+  durationMs: number;
+  error?: string;
+}
+
+export interface MediaAsset {
+  id: string;
+  type: MediaType;
+  variant: "standard" | "hd";
+  provider: string;
+  url: string;
+  contentType: string;
+  prompt: string;
+  /** Position of the illustration in `story.text`: the number of the paragraph it follows. */
+  afterParagraph: number;
+}
+
 export interface GenerateStoryResponse {
   story: {
     title?: string;
     text: string;
   };
+  media: MediaAsset[];
   usage: StoryUsage;
   mediaPlan: {
     requestedTypes: MediaType[];
     generatedTypes: MediaType[];
     note: string;
   };
+  steps: PipelineStep[];
 }
 
 export interface ApiErrorResponse {

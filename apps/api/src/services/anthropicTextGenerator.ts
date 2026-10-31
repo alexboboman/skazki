@@ -1,4 +1,4 @@
-import type { ChildProfile, GenerateStoryRequest, GenerateStoryResponse } from "../../../../packages/shared/src/index.js";
+import type { ChildProfile, GenerateStoryRequest, StoryUsage } from "../../../../packages/shared/src/index.js";
 import { postJson } from "./httpClient.js";
 
 interface AnthropicMessageResponse {
@@ -13,9 +13,22 @@ interface AnthropicMessageResponse {
   };
 }
 
-export interface TextGenerator {
-  generateStory(request: GenerateStoryRequest): Promise<GenerateStoryResponse>;
+export interface TextResult {
+  title?: string;
+  /** Raw model output: may still contain [IMAGE: ...] style media markers. */
+  text: string;
+  usage: StoryUsage;
 }
+
+export interface TextGenerator {
+  generateStory(request: GenerateStoryRequest): Promise<TextResult>;
+}
+
+const IMAGES_PER_FORMAT: Record<GenerateStoryRequest["format"], number> = {
+  quick_story: 3,
+  classic_story: 3,
+  story_arc_part: 2
+};
 
 export class AnthropicTextGenerator implements TextGenerator {
   constructor(
@@ -23,8 +36,9 @@ export class AnthropicTextGenerator implements TextGenerator {
     private readonly model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001"
   ) {}
 
-  async generateStory(request: GenerateStoryRequest): Promise<GenerateStoryResponse> {
-    const system = buildSystemPrompt(request.childProfile, request.wordCount ?? 700);
+  async generateStory(request: GenerateStoryRequest): Promise<TextResult> {
+    const wordCount = request.wordCount ?? 700;
+    const system = buildSystemPrompt(request.childProfile, wordCount);
     const userPrompt = buildUserPrompt(request);
 
     const res = await postJson(
@@ -36,7 +50,7 @@ export class AnthropicTextGenerator implements TextGenerator {
       },
       {
         model: this.model,
-        max_tokens: 1600,
+        max_tokens: Math.ceil(wordCount * 3.5) + 400,
         system,
         messages: [{ role: "user", content: userPrompt }]
       }
@@ -59,19 +73,12 @@ export class AnthropicTextGenerator implements TextGenerator {
     const outputTokens = data.usage?.output_tokens ?? 0;
 
     return {
-      story: {
-        title: extractMarkdownTitle(text),
-        text
-      },
+      title: extractMarkdownTitle(text),
+      text,
       usage: {
         inputTokens,
         outputTokens,
         estimatedCostUsd: estimateHaikuCost(inputTokens, outputTokens)
-      },
-      mediaPlan: {
-        requestedTypes: request.mediaOptions?.requestedTypes ?? [],
-        generatedTypes: [],
-        note: "API prototype generates text only. Media assets will be produced by the worker pipeline later."
       }
     };
   }
@@ -94,13 +101,32 @@ ${favoriteCharacter}
 }
 
 function buildUserPrompt(request: GenerateStoryRequest): string {
-  const mediaNote = request.mediaOptions?.requestedTypes.length
-    ? `Пока не генерируй медиа, но можешь отметить подходящие места для будущих медиа типов: ${request.mediaOptions.requestedTypes.join(", ")}.`
-    : "Пиши только текст сказки, без изображений, аудио и видео.";
+  const requested = request.mediaOptions?.requestedTypes ?? [];
+  const notes: string[] = [];
+
+  if (requested.includes("image")) {
+    notes.push(
+      `Расставь ровно ${IMAGES_PER_FORMAT[request.format]} маркера иллюстраций, каждый отдельной строкой после абзаца, который он иллюстрирует: [IMAGE: short scene description in English].`,
+      "В каждом маркере одинаково описывай внешность главных героев (возраст, волосы, одежда, цвета), чтобы иллюстрации выглядели как одна книга.",
+      "Не вставляй маркеры в заголовок и в последний абзац."
+    );
+  }
+
+  if (requested.includes("audio")) {
+    notes.push("Можешь добавить один маркер [AUDIO_CUE: calm bedtime narration notes]. Он пока не используется.");
+  }
+
+  if (requested.includes("video")) {
+    notes.push("Можешь добавить один маркер [VIDEO_CUE: short animated scene idea]. Он пока не используется.");
+  }
+
+  if (notes.length === 0) {
+    notes.push("Пиши только текст сказки, без изображений, аудио и видео.");
+  }
 
   return `Напиши сказку на ночь по профилю ребёнка.
 Формат: ${request.format}.
-${mediaNote}`;
+${notes.join("\n")}`;
 }
 
 function parseAnthropicResponse(rawBody: string): AnthropicMessageResponse {

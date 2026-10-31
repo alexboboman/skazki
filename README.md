@@ -12,7 +12,14 @@ The project now has a small API scaffold:
 - `docs/product` — PRD and technical architecture.
 - `docs/stories` — generated story samples.
 
-The API currently generates text only. Images, audio, video, entitlements, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+The API generates text (Claude) and illustrations (OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `parse_media_prompts` → `generate_images`. Audio, video, entitlements, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+
+Pipeline notes:
+
+- Claude marks illustration spots with `[IMAGE: ...]` in the text; the pipeline strips the markers and generates one image per marker (3 for quick/classic stories, 2 for arc parts). `[AUDIO_CUE]` / `[VIDEO_CUE]` are parsed and ignored.
+- A failed image step does not fail the request: the story is returned without pictures and the step is marked `failed` in `steps`.
+- Generated files go through the `MediaStore` interface. The local implementation writes to `apps/api/.media/` (git-ignored) and serves files at `GET /v1/media/:fileName`; Cloudflare R2 replaces it later.
+- The pipeline runs inline in the HTTP request. Moving it into a BullMQ worker is still open (see Phase 1 in the tech plan).
 
 ## Project Structure
 
@@ -71,6 +78,8 @@ Put your real key in `.env` or export it in the shell.
 ANTHROPIC_API_KEY=... npm run dev:api
 ```
 
+Images: set `OPENAI_API_KEY` to use `gpt-image-1`, or `IMAGE_PROVIDER=mock` for offline placeholders. Without a key the API falls back to the mock provider (visible as `provider: "mock"` in `steps`).
+
 Healthcheck:
 
 ```bash
@@ -94,10 +103,12 @@ curl -X POST http://localhost:3000/v1/stories/generate \
       "favoriteCharacter": "дракончик Рекс"
     },
     "mediaOptions": {
-      "requestedTypes": []
+      "requestedTypes": ["image"]
     }
   }'
 ```
+
+The response contains `story.text` (markers removed), `media[]` (each asset with `url` and `afterParagraph`: the paragraph of `story.text`, split by blank lines, that the image follows), `usage` and `steps`.
 
 ## Verify
 

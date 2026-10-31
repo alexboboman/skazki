@@ -2,8 +2,12 @@ import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import type { ApiErrorResponse, GenerateStoryRequest } from "../../../packages/shared/src/index.js";
 import { AnthropicTextGenerator } from "./services/anthropicTextGenerator.js";
+import { createImageGenerator } from "./services/imageGenerator.js";
+import { LocalMediaStore } from "./services/mediaStore.js";
+import { runStoryPipeline } from "./services/storyPipeline.js";
 
 const app = new Hono();
+const mediaStore = new LocalMediaStore();
 
 app.get("/health", (c) => {
   return c.json({ status: "ok" });
@@ -23,14 +27,39 @@ app.post("/v1/stories/generate", async (c) => {
     return errorResponse(c, 400, "invalid_request", request.message);
   }
 
+  let imageGenerator;
+
   try {
-    const generator = new AnthropicTextGenerator(apiKey);
-    const response = await generator.generateStory(request.value);
+    imageGenerator = createImageGenerator();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid image provider configuration.";
+    return errorResponse(c, 500, "invalid_image_config", message);
+  }
+
+  try {
+    const response = await runStoryPipeline(request.value, {
+      textGenerator: new AnthropicTextGenerator(apiKey),
+      imageGenerator,
+      mediaStore
+    });
     return c.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown generation error.";
     return errorResponse(c, 502, "story_generation_failed", message);
   }
+});
+
+app.get("/v1/media/:fileName", async (c) => {
+  const file = await mediaStore.read(c.req.param("fileName"));
+
+  if (!file) {
+    return errorResponse(c, 404, "media_not_found", "Media file not found.");
+  }
+
+  return c.body(new Uint8Array(file.bytes), 200, {
+    "content-type": file.contentType,
+    "cache-control": "public, max-age=31536000, immutable"
+  });
 });
 
 const port = Number(process.env.PORT ?? 3000);
@@ -111,7 +140,7 @@ function validateGenerateStoryRequest(
   };
 }
 
-function errorResponse(c: Context, status: 400 | 500 | 502, code: string, message: string) {
+function errorResponse(c: Context, status: 400 | 404 | 500 | 502, code: string, message: string) {
   const payload: ApiErrorResponse = { error: { code, message } };
   return c.json(payload, status);
 }
