@@ -6,7 +6,7 @@ iPhone-приложение (iPad позже), которое генерируе
 - Backend: Node.js 22 + TypeScript, Hono (`apps/api`), общие типы в `packages/shared`
 - Текст сказок: Anthropic Claude
 - iOS-приложение на SwiftUI, сначала iPhone, iPad позже (папка `ios/`: Swift Package + XcodeGen, подробности в `ios/README.md`; сборка в Xcode 16+, тесты через `swift test`), иллюстрации, аудио, подписки (StoreKit 2)
-- Реализованы: генерация текста (Claude) и картинок (Phygital+ или OpenAI), JWT-авторизация (Apple Sign In + dev-вход), профили детей и библиотека историй (Drizzle + Postgres/PGlite), safety-проверка текста, тарифные лимиты и квоты (entitlements, ответ 402 для пейволла). Аудио, видео, интеграция StoreKit, очередь BullMQ и аналитика описаны лишь в документах
+- Реализованы: генерация текста (Claude) и картинок (Phygital+ или OpenAI), JWT-авторизация (Apple Sign In + dev-вход), профили детей и библиотека историй (Drizzle + Postgres/PGlite), safety-проверка текста, тарифные лимиты и квоты (entitlements, ответ 402 для пейволла). Чтение вслух на устройстве (AVSpeechSynthesizer). Видео, интеграция StoreKit, очередь BullMQ и аналитика описаны лишь в документах
 
 ## Команды
 ```bash

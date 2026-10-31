@@ -28,6 +28,9 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         API_BASE_URL: http://localhost:3000
+        # Reading aloud goes on when the screen locks.
+        UIBackgroundModes:
+          - audio
         # Lets the Simulator talk to the local API over plain http.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

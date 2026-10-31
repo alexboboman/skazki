@@ -34,6 +34,7 @@ public struct ReadingView: View {
 
     @AppStorage("readingFontStep") private var fontStep = 1
     @State private var reachedEnd = false
+    @StateObject private var narration: NarrationController
 
     static let fontSizes: [CGFloat] = [17, 19, 22, 26]
 
@@ -57,6 +58,7 @@ public struct ReadingView: View {
         self.favorite = favorite
         self.onToggleFavorite = onToggleFavorite
         self.finale = finale
+        _narration = StateObject(wrappedValue: NarrationController(story: story))
     }
 
     private var bodySize: CGFloat { Self.fontSizes[min(max(fontStep, 0), Self.fontSizes.count - 1)] }
@@ -64,6 +66,7 @@ public struct ReadingView: View {
     public var body: some View {
         ZStack(alignment: .top) {
             NightBackground(starCount: 24, seed: 41)
+            ScrollViewReader { proxy in
             AdaptiveScroll {
                 VStack(spacing: 0) {
                     Text(story.title).titleStyle(30).multilineTextAlignment(.center).padding(.top, 74).padding(.bottom, 6)
@@ -79,6 +82,9 @@ public struct ReadingView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.bottom, 18)
+                                .opacity(dimmed(block) ? 0.38 : 1)
+                                .animation(.easeInOut(duration: 0.4), value: narration.currentParagraph)
+                                .id(block.id)
                         case .illustration(let asset):
                             StoryIllustration(url: mediaURL(asset.url), hero: hero)
                                 .padding(.vertical, 6)
@@ -126,14 +132,36 @@ public struct ReadingView: View {
                     if let onUpsell {
                         upsell(onUpsell)
                     }
-                    Color.clear.frame(height: 40)
+                    Color.clear.frame(height: narration.isActive ? 110 : 40)
                 }
                 .padding(.horizontal, 26)
             }
+            .onChange(of: narration.currentParagraph) { _, paragraph in
+                // Keeps the paragraph that is being read on screen.
+                guard let paragraph else { return }
+                withAnimation(.easeInOut(duration: 0.6)) { proxy.scrollTo("p\(paragraph)", anchor: UnitPoint(x: 0.5, y: 0.3)) }
+            }
+            }
 
             topBar
+
+            if narration.isActive {
+                NarrationBar(narration: narration)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.25), value: narration.isActive)
+        .onDisappear { narration.stop() }
         .preferredColorScheme(.dark)
+    }
+
+    /// While a story is read aloud, every paragraph except the current one is dimmed.
+    private func dimmed(_ block: ReadableStory.Block) -> Bool {
+        guard narration.isActive, let current = narration.currentParagraph, case .paragraph(let index, _) = block else { return false }
+        return index != current
     }
 
     private var subtitle: String {
@@ -159,6 +187,8 @@ public struct ReadingView: View {
             Text("Режим чтения · ночник")
                 .font(Theme.sans(13.5))
                 .foregroundStyle(Theme.text2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
             if let favorite {
                 Button(action: onToggleFavorite) {
@@ -172,6 +202,18 @@ public struct ReadingView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(favorite ? "Убрать из любимых" : "В любимые")
             }
+            Button {
+                narration.isActive ? narration.stop() : narration.play()
+            } label: {
+                Image(systemName: narration.isActive ? "speaker.wave.2.fill" : "headphones")
+                    .font(.system(size: 16))
+                    .foregroundStyle(narration.isActive ? Theme.accent : Theme.text2)
+                    .frame(width: 42, height: 42)
+                    .background(Theme.card, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.border))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(narration.isActive ? "Остановить чтение вслух" : "Слушать сказку")
             Button {
                 fontStep = (fontStep + 1) % Self.fontSizes.count
             } label: {
