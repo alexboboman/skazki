@@ -12,7 +12,14 @@ The project now has a small API scaffold:
 - `docs/product` — PRD and technical architecture.
 - `docs/stories` — generated story samples.
 
-The API generates text (Claude) and illustrations (OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `parse_media_prompts` → `generate_images`. Audio, video, entitlements, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `parse_media_prompts` → `generate_images`. Audio, video, entitlements, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+
+Data and auth notes:
+
+- DB: Drizzle ORM over Postgres. With `DATABASE_URL` set (Neon in production) it uses `pg`; without it the API runs an embedded PGlite database in `apps/api/.data/pglite` (git-ignored), so local dev needs no Postgres. Migrations in `apps/api/drizzle/` are applied on startup; after editing `apps/api/src/db/schema.ts` run `npm run db:generate`.
+- Auth: `POST /v1/auth/apple` verifies an Apple identity token (RS256 via Apple JWKS, `iss`/`aud` checked against `APPLE_BUNDLE_ID`) and returns our own HS256 JWT (30 days, `JWT_SECRET`). The Apple flow is implemented but not yet tested against a real Apple token. For local work set `AUTH_DEV_LOGIN=1` to enable `POST /v1/auth/dev` (disabled when `NODE_ENV=production`).
+- Every `/v1/profiles` and `/v1/stories` route needs `Authorization: Bearer <token>` and only sees the caller's own data.
+- Limits: at most 5 child profiles per user for now. Per-tier limits (Free/Family/Family+) arrive with the Entitlement Service.
 
 Pipeline notes:
 
@@ -86,29 +93,45 @@ Healthcheck:
 curl http://localhost:3000/health
 ```
 
-Generate a story:
+Log in (dev), create a profile and generate a story:
 
 ```bash
-curl -X POST http://localhost:3000/v1/stories/generate \
-  -H "content-type: application/json" \
+AUTH_DEV_LOGIN=1 ANTHROPIC_API_KEY=... npm run dev:api   # in another terminal
+
+TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/dev \
+  -H "content-type: application/json" -d '{"name":"me"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+
+PROFILE=$(curl -s -X POST http://localhost:3000/v1/profiles \
+  -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
   -d '{
-    "format": "quick_story",
-    "wordCount": 600,
-    "childProfile": {
-      "name": "Саша",
-      "age": 5,
-      "language": "Русский",
-      "interests": ["динозавры", "космос"],
-      "world": "волшебный лес с говорящими животными",
-      "favoriteCharacter": "дракончик Рекс"
-    },
-    "mediaOptions": {
-      "requestedTypes": ["image"]
-    }
-  }'
+    "name": "Саша",
+    "age": 5,
+    "language": "Русский",
+    "interests": ["динозавры", "космос"],
+    "worlds": ["волшебный лес с говорящими животными"],
+    "favoriteCharacter": "дракончик Рекс"
+  }' | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+
+curl -X POST http://localhost:3000/v1/stories/generate \
+  -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d "{\"profileId\": \"$PROFILE\", \"format\": \"quick_story\", \"wordCount\": 600, \"mediaOptions\": {\"requestedTypes\": [\"image\"]}}"
 ```
 
-The response contains `story.text` (markers removed), `media[]` (each asset with `url` and `afterParagraph`: the paragraph of `story.text`, split by blank lines, that the image follows), `usage` and `steps`.
+Instead of `profileId` the generate body also accepts an inline `childProfile` (`name`, `age`, `language`, `interests`, `world`, optional `favoriteCharacter`); such stories are saved without a profile link.
+
+Endpoints (all under `/v1`, all except `auth/*` and `media/*` need a bearer token):
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/auth/apple`, `/auth/dev` | Sign in, returns `{ token, user }` |
+| GET, POST | `/profiles` | List / create child profiles |
+| GET, PUT, DELETE | `/profiles/:id` | Read / replace / delete a profile |
+| POST | `/stories/generate` | Generate and save a story (returns `storyId`) |
+| GET | `/stories?profileId=` | Library list with `coverImageUrl` |
+| GET, DELETE | `/stories/:id` | Full story with parts and media / delete |
+| GET | `/media/:fileName` | Generated image files |
+
+The generate response contains `storyId`, `story.text` (markers removed), `media[]` (each asset with `url` and `afterParagraph`: the paragraph of `story.text`, split by blank lines, that the image follows), `usage` and `steps`.
 
 ## Verify
 

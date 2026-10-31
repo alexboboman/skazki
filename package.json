@@ -9,18 +9,24 @@
   "scripts": {
     "dev:api": "tsx apps/api/src/server.ts",
     "typecheck": "tsc --noEmit",
-    "start:api": "node --import tsx apps/api/src/server.ts"
+    "start:api": "node --import tsx apps/api/src/server.ts",
+    "db:generate": "drizzle-kit generate --config apps/api/drizzle.config.ts"
   },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.14",
     "@hono/node-server": "^2.0.4",
-    "hono": "^4.12.23"
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.12.23",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }

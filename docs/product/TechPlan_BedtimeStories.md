@@ -154,6 +154,8 @@ media_assets (
   variant,           -- standard | hd | thumbnail | premium_voice | preview
   provider,
   url,
+  content_type,
+  after_paragraph,   -- абзац текста, после которого показывается иллюстрация
   width,
   height,
   duration_sec,
@@ -273,9 +275,10 @@ Claude должен возвращать структурированные ма
 - [ ] Настройка StoreKit sandbox
 
 ### Phase 1 — MVP (6–8 нед)
-- [ ] Backend: Auth (Apple Sign In + JWT)
+- [x] Backend: Auth (Apple Sign In + JWT) — `POST /v1/auth/apple` верифицирует identity token по JWKS Apple и выдаёт свой JWT; проверен только dev-вход, с реальным токеном Apple ещё не прогонялся
 - [ ] Backend: Entitlement Service + usage counters
 - [ ] Backend: Story generation worker (Claude + Image) как step-based pipeline — шаги `generate_text` → `parse_media_prompts` → `generate_images` реализованы inline в API (`apps/api/src/services/storyPipeline.ts`), осталось вынести в BullMQ-воркер, добавить `build_prompt`, `safety_check`, `persist_story_and_media`
+- [x] Backend: Profiles + библиотека историй (Drizzle, Postgres/PGlite) — `/v1/profiles`, `/v1/stories`, лимит 5 профилей, тарифные лимиты придут с Entitlement Service
 - [ ] Backend: Media Service (`media_assets`, R2, variants) — сейчас `MediaStore` с локальной папкой (`apps/api/.media`) и `GET /v1/media/:fileName`; R2 и таблица `media_assets` впереди
 - [ ] Backend: StoreKit 2 webhook integration + App Store Server Notifications v2
 - [ ] Backend: Analytics Service для server-side событий

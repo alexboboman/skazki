@@ -24,6 +24,10 @@ export interface GenerateStoryRequest {
   mediaOptions?: MediaOptions;
 }
 
+/** Body of POST /v1/stories/generate: a saved `profileId` or an inline `childProfile`. */
+export type GenerateStoryBody = Omit<GenerateStoryRequest, "childProfile"> &
+  ({ profileId: string; childProfile?: undefined } | { profileId?: undefined; childProfile: ChildProfile });
+
 export interface StoryUsage {
   inputTokens: number;
   outputTokens: number;
@@ -55,6 +59,8 @@ export interface MediaAsset {
 }
 
 export interface GenerateStoryResponse {
+  /** Id of the saved story, see GET /v1/stories/:id. */
+  storyId?: string;
   story: {
     title?: string;
     text: string;
@@ -74,4 +80,44 @@ export interface ApiErrorResponse {
     code: string;
     message: string;
   };
+}
+
+export interface ChildProfileInput {
+  name: string;
+  age: number;
+  gender?: string;
+  interests: string[];
+  worlds: string[];
+  favoriteCharacter?: string;
+  language: string;
+}
+
+export interface ChildProfileDto extends ChildProfileInput {
+  id: string;
+  createdAt: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: { id: string; email?: string };
+}
+
+export interface StorySummary {
+  id: string;
+  title?: string;
+  format: StoryFormat;
+  childProfileId?: string;
+  coverImageUrl?: string;
+  createdAt: string;
+}
+
+export interface StoryPartDto {
+  partNumber: number;
+  text: string;
+  media: MediaAsset[];
+}
+
+export interface StoryDto extends StorySummary {
+  totalParts: number;
+  parts: StoryPartDto[];
 }
