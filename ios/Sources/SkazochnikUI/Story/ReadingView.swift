@@ -149,7 +149,10 @@ public struct ReadingView: View {
         .padding(.horizontal, 26)
         .padding(.top, 8)
         .padding(.bottom, 14)
-        .background(LinearGradient(colors: [Theme.bg1, Theme.bg1.opacity(0)], startPoint: .top, endPoint: .bottom))
+        .background(
+            LinearGradient(stops: [.init(color: Theme.bg1, location: 0), .init(color: Theme.bg1, location: 0.7), .init(color: Theme.bg1.opacity(0), location: 1)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top)
+        )
     }
 
     private func upsell(_ action: @escaping () -> Void) -> some View {

@@ -109,7 +109,7 @@ struct CreateView: View {
                     }
                 }
             }
-            TextField("", text: $draft.note, prompt: Text("Или своими словами: что случилось за день…").foregroundStyle(Theme.text3), axis: .vertical)
+            TextField("", text: $draft.note, prompt: Text("Или своими словами…").foregroundStyle(Theme.text3), axis: .vertical)
                 .lineLimit(2...4)
                 .font(Theme.sans(15))
                 .foregroundStyle(Theme.text)

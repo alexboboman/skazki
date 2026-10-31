@@ -144,7 +144,8 @@ struct AgeStepView: View {
                         }
                     }
                     .padding(.horizontal, 4)
-                    .padding(.vertical, 10)
+                    // Room for the glow of the selected age: the scroll view clips what overflows it.
+                    .padding(.vertical, 28)
                 }
             }
         } footer: {

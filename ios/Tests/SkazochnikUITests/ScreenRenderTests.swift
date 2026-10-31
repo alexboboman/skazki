@@ -133,5 +133,37 @@ import AppKit
             CreateView(app: Sample.appModel(profiles: [Sample.anya]), profile: Sample.anya, onClose: {}, onCreate: { _ in })
         }
     }
+
+    // MARK: App icon
+
+    /// Draws the 1024 pt app icon. `APP_ICON_DIR=ios/App/Assets.xcassets/AppIcon.appiconset swift test --filter writesAppIcon` rewrites it.
+    @Test func writesAppIcon() throws {
+        let icon = ZStack {
+            RadialGradient(colors: [Theme.bg2, Theme.bg1, Theme.bg0], center: UnitPoint(x: 0.5, y: 0.1), startRadius: 0, endRadius: 900)
+            Circle()
+                .fill(RadialGradient(colors: [Color(hex: 0x8B6EDB, opacity: 0.55), .clear], center: .center, startRadius: 0, endRadius: 360))
+                .frame(width: 720, height: 720)
+                .offset(x: -260, y: -300)
+            StarField(count: 26, seed: 21, animated: false)
+            MoonIcon(size: 520)
+            Sparkle(size: 92).offset(x: -250, y: -190)
+            Sparkle(size: 56, color: .white).offset(x: 270, y: 250)
+            Sparkle(size: 40).offset(x: 300, y: -260)
+        }
+        .frame(width: 1024, height: 1024)
+        .clipped()
+
+        let renderer = ImageRenderer(content: icon)
+        renderer.scale = 1
+        let image = try #require(renderer.nsImage)
+        let tiff = try #require(image.tiffRepresentation)
+        let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+        #expect(png.count > 20_000)
+
+        if let dir = ProcessInfo.processInfo.environment["APP_ICON_DIR"] {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("icon-1024.png"))
+        }
+    }
 }
 #endif

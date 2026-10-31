@@ -66,7 +66,7 @@ struct PaywallView: View {
                         VStack(spacing: 11) {
                             ForEach(Self.plans) { item in planRow(item) }
                         }
-                        .padding(.bottom, 20)
+                        .padding(.bottom, 28)
                     }
                 }
     

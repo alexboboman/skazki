@@ -20,10 +20,6 @@ public struct HeroAvatarView: View {
         let base = Color.clear
 
         ZStack {
-            Circle()
-                .fill(RadialGradient(colors: [Theme.accent.opacity(0.32), .clear], center: .center, startRadius: 0, endRadius: size * 0.6))
-                .frame(width: size * 1.36, height: size * 1.36)
-
             // body
             UnevenRoundedRectangle(topLeadingRadius: 44 * u, bottomLeadingRadius: 20 * u, bottomTrailingRadius: 20 * u, topTrailingRadius: 44 * u)
                 .fill(LinearGradient(colors: [Color(hex: outfit), base.shaded(outfit, by: -18)], startPoint: .top, endPoint: .bottom))
@@ -73,6 +69,12 @@ public struct HeroAvatarView: View {
             }
         }
         .frame(width: size, height: size)
+        // The glow is a background: a layer bigger than the avatar must not shift the positioned shapes.
+        .background {
+            Circle()
+                .fill(RadialGradient(colors: [Theme.accent.opacity(0.32), .clear], center: .center, startRadius: 0, endRadius: size * 0.6))
+                .frame(width: size * 1.36, height: size * 1.36)
+        }
         .accessibilityHidden(true)
     }
 }

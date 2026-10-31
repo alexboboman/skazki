@@ -13,7 +13,7 @@ export class MockTextGenerator implements TextGenerator {
 
     const text = `# ${title}
 
-Когда над миром зажглись первые звёзды, ${names} услышали тихий шёпот ветра. «Идём, — позвал он, — я покажу самое волшебное место».${topic}
+Когда над миром зажглись первые звёзды, тихий шёпот ветра позвал ${names}. «Идём, — сказал он, — я покажу самое волшебное место».${topic}
 
 [IMAGE: a small child follows a glowing path through a quiet forest at dusk]
 
@@ -23,7 +23,7 @@ export class MockTextGenerator implements TextGenerator {
 
 [IMAGE: a cave ceiling full of tiny glowing fireflies and a small green dragon]
 
-${first} тихонько погладил дракончика по голове и почувствовал, как тёплая сонливость укрывает, словно мягкое одеяло. Светлячки гасли один за другим, и пещера наполнилась покоем.
+Тёплая сонливость укрыла ${first}, словно мягкое одеяло. Светлячки гасли один за другим, и пещера наполнилась покоем.
 
 [MORAL: Даже когда мы отдыхаем, жизнь остаётся волшебной, а доброта светит ярче звёзд.]
 [CLOSING: Спи сладко. Пусть тебе приснятся звёзды и добрые драконы…]`;
