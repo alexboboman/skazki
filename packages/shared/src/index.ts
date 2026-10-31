@@ -34,7 +34,7 @@ export interface StoryUsage {
   estimatedCostUsd: number;
 }
 
-export type PipelineStepName = "generate_text" | "parse_media_prompts" | "generate_images";
+export type PipelineStepName = "generate_text" | "safety_check" | "parse_media_prompts" | "generate_images";
 
 export type PipelineStepStatus = "succeeded" | "failed" | "skipped";
 
@@ -120,4 +120,47 @@ export interface StoryPartDto {
 export interface StoryDto extends StorySummary {
   totalParts: number;
   parts: StoryPartDto[];
+}
+
+export type Tier = "free" | "family" | "family_plus";
+
+export type QuotaFeature = "classic_story" | "quick_story";
+
+export type QuotaPeriod = "day" | "week" | "month";
+
+export interface QuotaStatus {
+  feature: QuotaFeature;
+  period: QuotaPeriod;
+  limit: number;
+  used: number;
+  /** ISO time when the counter resets. */
+  resetsAt: string;
+}
+
+/** GET /v1/entitlements: everything the client needs to render the paywall and gate buttons. */
+export interface EntitlementsResponse {
+  tier: Tier;
+  source: "subscription" | "trial" | "free";
+  trialEndsAt?: string;
+  limits: {
+    profiles: { limit: number; used: number };
+    activeArcs: number;
+    imageQuality: "standard" | "hd";
+  };
+  quotas: QuotaStatus[];
+}
+
+/**
+ * HTTP 402 body: the client should show the paywall. `feature` says what was blocked:
+ * `profiles`, `story_arc`, `classic_story` or `quick_story`.
+ */
+export interface PaywallErrorResponse {
+  error: {
+    code: "limit_reached" | "upgrade_required";
+    message: string;
+    feature: string;
+    tier: Tier;
+    limit?: number;
+    resetsAt?: string;
+  };
 }

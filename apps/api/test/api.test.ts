@@ -1,0 +1,389 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { before, describe, test } from "node:test";
+
+process.env.AUTH_DEV_LOGIN = "1";
+process.env.JWT_SECRET = "test-secret";
+delete process.env.NODE_ENV;
+
+const { createApp } = await import("../src/app.js");
+const { createDb } = await import("../src/db/client.js");
+const { MockImageGenerator } = await import("../src/services/imageGenerator.js");
+const { LocalMediaStore } = await import("../src/services/mediaStore.js");
+const { periodWindow } = await import("../src/services/entitlements.js");
+const { parseVerdict } = await import("../src/services/safetyChecker.js");
+const { parseMediaMarkers } = await import("../src/services/mediaPrompts.js");
+
+const RAW_STORY =
+  "# Саша и дракончик\n\nЖил-был Саша.\n\n[IMAGE: boy and dragon]\n\nОни подружились.\n\n[IMAGE: stars]\n\nКонец.";
+
+const profile = {
+  name: "Саша",
+  age: 5,
+  language: "Русский",
+  interests: ["динозавры"],
+  worlds: ["волшебный лес"],
+  favoriteCharacter: "Рекс"
+};
+
+const inlineBody = (format = "quick_story", extra: object = {}) => ({
+  childProfile: { name: "Маша", age: 4, language: "Русский", interests: [], world: "море" },
+  format,
+  ...extra
+});
+
+// Knobs the tests flip to simulate model behaviour.
+const behaviour = { textFails: false, verdicts: [] as Array<{ safe: boolean; reason?: string } | "throw"> };
+let textCalls = 0;
+
+const textGenerator = {
+  async generateStory() {
+    textCalls++;
+    if (behaviour.textFails) {
+      throw new Error("anthropic down");
+    }
+    return { title: "Саша и дракончик", text: RAW_STORY, usage: { inputTokens: 10, outputTokens: 20, estimatedCostUsd: 0.001 } };
+  }
+};
+
+const safetyChecker = {
+  async check() {
+    const next = behaviour.verdicts.shift() ?? { safe: true };
+    if (next === "throw") {
+      throw new Error("safety api down");
+    }
+    return next;
+  }
+};
+
+let app: ReturnType<typeof createApp>;
+let userCounter = 0;
+
+before(async () => {
+  app = createApp({
+    db: await createDb({ dataDir: "memory://" }),
+    mediaStore: new LocalMediaStore(await mkdtemp(path.join(os.tmpdir(), "skazochnik-media-"))),
+    imageGenerator: new MockImageGenerator(),
+    textGenerator,
+    safetyChecker
+  });
+});
+
+async function call(method: string, url: string, token?: string, body?: unknown) {
+  const res = await app.request(url, {
+    method,
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await res.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = undefined;
+  }
+  return { status: res.status, json, headers: res.headers };
+}
+
+async function newUser(tier?: "free" | "family" | "family_plus") {
+  const { json } = await call("POST", "/v1/auth/dev", undefined, { name: `user${++userCounter}` });
+  if (tier) {
+    await call("PUT", "/v1/dev/subscription", json.token, { tier });
+  }
+  return json as { token: string; user: { id: string } };
+}
+
+function resetBehaviour() {
+  behaviour.textFails = false;
+  behaviour.verdicts = [];
+}
+
+describe("auth", () => {
+  test("rejects missing and bad tokens", async () => {
+    assert.equal((await call("GET", "/v1/profiles")).status, 401);
+    assert.equal((await call("GET", "/v1/profiles", "garbage")).status, 401);
+  });
+
+  test("apple login without configuration is refused", async () => {
+    assert.equal((await call("POST", "/v1/auth/apple", undefined, { identityToken: "x.y.z" })).status, 401);
+    assert.equal((await call("POST", "/v1/auth/apple", undefined, {})).status, 400);
+  });
+
+  test("dev login is stable per name", async () => {
+    const a1 = (await call("POST", "/v1/auth/dev", undefined, { name: "stable" })).json;
+    const a2 = (await call("POST", "/v1/auth/dev", undefined, { name: "stable" })).json;
+    assert.equal(a1.user.id, a2.user.id);
+  });
+});
+
+describe("profiles", () => {
+  test("crud and isolation between users", async () => {
+    const a = await newUser("family_plus");
+    const b = await newUser();
+
+    assert.equal((await call("POST", "/v1/profiles", a.token, { ...profile, age: 1 })).status, 400);
+
+    const created = await call("POST", "/v1/profiles", a.token, profile);
+    assert.equal(created.status, 201);
+    const id = created.json.id;
+
+    assert.equal((await call("GET", "/v1/profiles", a.token)).json.profiles.length, 1);
+    assert.equal((await call("GET", `/v1/profiles/${id}`, b.token)).status, 404);
+    assert.equal((await call("GET", "/v1/profiles/not-a-uuid", a.token)).status, 404);
+
+    const updated = await call("PUT", `/v1/profiles/${id}`, a.token, { ...profile, name: "Саша2", favoriteCharacter: undefined });
+    assert.equal(updated.json.name, "Саша2");
+    assert.equal(updated.json.favoriteCharacter, undefined);
+
+    assert.equal((await call("DELETE", `/v1/profiles/${id}`, a.token)).status, 204);
+    assert.equal((await call("GET", `/v1/profiles/${id}`, a.token)).status, 404);
+  });
+
+  test("profile cap follows the tier and answers 402", async () => {
+    const free = await newUser("free");
+    assert.equal((await call("POST", "/v1/profiles", free.token, profile)).status, 201);
+    const blocked = await call("POST", "/v1/profiles", free.token, profile);
+    assert.equal(blocked.status, 402);
+    assert.deepEqual(
+      { code: blocked.json.error.code, feature: blocked.json.error.feature, tier: blocked.json.error.tier, limit: blocked.json.error.limit },
+      { code: "limit_reached", feature: "profiles", tier: "free", limit: 1 }
+    );
+
+    const family = await newUser("family");
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await call("POST", "/v1/profiles", family.token, profile)).status, 201);
+    }
+    assert.equal((await call("POST", "/v1/profiles", family.token, profile)).status, 402);
+
+    const plus = await newUser("family_plus");
+    for (let i = 0; i < 5; i++) {
+      assert.equal((await call("POST", "/v1/profiles", plus.token, profile)).status, 201);
+    }
+    assert.equal((await call("POST", "/v1/profiles", plus.token, profile)).status, 402);
+  });
+});
+
+describe("entitlements", () => {
+  test("new users get a 7-day Family trial", async () => {
+    const user = await newUser();
+    const { json } = await call("GET", "/v1/entitlements", user.token);
+    assert.equal(json.tier, "family");
+    assert.equal(json.source, "trial");
+    const days = (Date.parse(json.trialEndsAt) - Date.now()) / 86_400_000;
+    assert.ok(days > 6.9 && days <= 7, `trial length ${days}`);
+    assert.equal(json.limits.profiles.limit, 3);
+  });
+
+  test("snapshot reflects tier and usage", async () => {
+    const user = await newUser("free");
+    resetBehaviour();
+    await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"));
+
+    const { json } = await call("GET", "/v1/entitlements", user.token);
+    assert.equal(json.tier, "free");
+    assert.equal(json.source, "free");
+    assert.equal(json.limits.imageQuality, "standard");
+    const quick = json.quotas.find((q: any) => q.feature === "quick_story");
+    assert.deepEqual({ limit: quick.limit, used: quick.used, period: quick.period }, { limit: 3, used: 1, period: "week" });
+  });
+
+  test("period windows are UTC day, Monday-based week and calendar month", () => {
+    const wed = new Date("2026-10-28T15:30:00Z");
+    assert.equal(periodWindow("day", wed).start.toISOString(), "2026-10-28T00:00:00.000Z");
+    assert.equal(periodWindow("week", wed).start.toISOString(), "2026-10-26T00:00:00.000Z");
+    assert.equal(periodWindow("week", wed).end.toISOString(), "2026-11-02T00:00:00.000Z");
+    assert.equal(periodWindow("week", new Date("2026-11-01T23:59:00Z")).start.toISOString(), "2026-10-26T00:00:00.000Z");
+    assert.equal(periodWindow("month", new Date("2026-12-31T23:00:00Z")).end.toISOString(), "2027-01-01T00:00:00.000Z");
+  });
+});
+
+describe("story generation", () => {
+  test("saves the story, strips markers and serves the library", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const created = (await call("POST", "/v1/profiles", user.token, profile)).json;
+
+    const gen = await call("POST", "/v1/stories/generate", user.token, {
+      profileId: created.id,
+      format: "quick_story",
+      mediaOptions: { requestedTypes: ["image"], imageQuality: "hd" }
+    });
+    assert.equal(gen.status, 200);
+    assert.equal(gen.json.media.length, 2);
+    assert.equal(gen.json.media[0].variant, "hd");
+    assert.deepEqual(
+      gen.json.steps.map((s: any) => `${s.name}:${s.status}`),
+      ["generate_text:succeeded", "safety_check:succeeded", "parse_media_prompts:succeeded", "generate_images:succeeded"]
+    );
+
+    const list = (await call("GET", "/v1/stories", user.token)).json.stories;
+    assert.equal(list.length, 1);
+    assert.ok(list[0].coverImageUrl.startsWith("/v1/media/"));
+    assert.equal((await call("GET", `/v1/stories?profileId=${created.id}`, user.token)).json.stories.length, 1);
+    assert.equal((await call("GET", "/v1/stories?profileId=abc", user.token)).status, 400);
+
+    const full = (await call("GET", `/v1/stories/${gen.json.storyId}`, user.token)).json;
+    assert.equal(full.parts[0].media.length, 2);
+    assert.ok(!full.parts[0].text.includes("[IMAGE"));
+
+    const media = await call("GET", full.parts[0].media[0].url);
+    assert.equal(media.status, 200);
+    assert.equal(media.headers.get("content-type"), "image/svg+xml");
+    assert.equal((await call("GET", "/v1/media/..%2F..%2Fpackage.json")).status, 404);
+
+    const other = await newUser();
+    assert.equal((await call("GET", `/v1/stories/${gen.json.storyId}`, other.token)).status, 404);
+
+    assert.equal((await call("DELETE", `/v1/stories/${gen.json.storyId}`, user.token)).status, 204);
+    assert.equal((await call("GET", `/v1/stories/${gen.json.storyId}`, user.token)).status, 404);
+  });
+
+  test("validates the body and foreign or malformed profile ids", async () => {
+    const a = await newUser();
+    const b = await newUser();
+    const created = (await call("POST", "/v1/profiles", a.token, profile)).json;
+
+    assert.equal((await call("POST", "/v1/stories/generate", a.token, { format: "quick_story" })).status, 400);
+    assert.equal((await call("POST", "/v1/stories/generate", b.token, { profileId: created.id, format: "quick_story" })).status, 404);
+    assert.equal((await call("POST", "/v1/stories/generate", a.token, { profileId: "abc", format: "quick_story" })).status, 404);
+  });
+
+  test("free tier gets standard images even when hd is requested", async () => {
+    resetBehaviour();
+    const user = await newUser("free");
+    const gen = await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story", { mediaOptions: { requestedTypes: ["image"], imageQuality: "hd" } }));
+    assert.equal(gen.status, 200);
+    assert.equal(gen.json.media[0].variant, "standard");
+  });
+});
+
+describe("quotas and paywall", () => {
+  test("free: 3 quick stories per week, then 402 with reset time", async () => {
+    resetBehaviour();
+    const user = await newUser("free");
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"))).status, 200);
+    }
+    const blocked = await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"));
+    assert.equal(blocked.status, 402);
+    assert.equal(blocked.json.error.code, "limit_reached");
+    assert.equal(blocked.json.error.feature, "quick_story");
+    assert.equal(blocked.json.error.limit, 3);
+    assert.ok(Date.parse(blocked.json.error.resetsAt) > Date.now());
+
+    // Reading is never blocked by the paywall.
+    assert.equal((await call("GET", "/v1/stories", user.token)).json.stories.length, 3);
+  });
+
+  test("free: 1 classic story per day", async () => {
+    resetBehaviour();
+    const user = await newUser("free");
+    assert.equal((await call("POST", "/v1/stories/generate", user.token, inlineBody("classic_story"))).status, 200);
+    const blocked = await call("POST", "/v1/stories/generate", user.token, inlineBody("classic_story"));
+    assert.equal(blocked.status, 402);
+    assert.equal(blocked.json.error.feature, "classic_story");
+  });
+
+  test("story arcs need a paid tier", async () => {
+    resetBehaviour();
+    const free = await newUser("free");
+    const blocked = await call("POST", "/v1/stories/generate", free.token, inlineBody("story_arc_part"));
+    assert.equal(blocked.status, 402);
+    assert.equal(blocked.json.error.code, "upgrade_required");
+    assert.equal(blocked.json.error.feature, "story_arc");
+
+    const family = await newUser("family");
+    assert.equal((await call("POST", "/v1/stories/generate", family.token, inlineBody("story_arc_part"))).status, 200);
+  });
+
+  test("parallel requests cannot exceed the limit", async () => {
+    resetBehaviour();
+    const user = await newUser("free");
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story")))
+    );
+    assert.equal(results.filter((r) => r.status === 200).length, 3);
+    assert.equal(results.filter((r) => r.status === 402).length, 3);
+  });
+
+  test("a failed generation gives the quota back", async () => {
+    const user = await newUser("free");
+    const used = async () =>
+      (await call("GET", "/v1/entitlements", user.token)).json.quotas.find((q: any) => q.feature === "quick_story").used;
+
+    behaviour.textFails = true;
+    const failed = await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"));
+    assert.equal(failed.status, 502);
+    assert.equal(await used(), 0);
+
+    resetBehaviour();
+    assert.equal((await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"))).status, 200);
+    assert.equal(await used(), 1);
+  });
+});
+
+describe("safety check", () => {
+  test("an unsafe story is regenerated once and then served", async () => {
+    resetBehaviour();
+    behaviour.verdicts = [{ safe: false, reason: "страшная сцена" }];
+    textCalls = 0;
+
+    const user = await newUser("family");
+    const gen = await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"));
+    assert.equal(gen.status, 200);
+    assert.equal(textCalls, 2);
+    assert.deepEqual(
+      gen.json.steps.map((s: any) => `${s.name}:${s.status}`).slice(0, 4),
+      ["generate_text:succeeded", "safety_check:failed", "generate_text:succeeded", "safety_check:succeeded"]
+    );
+    assert.equal(gen.json.usage.inputTokens, 20);
+  });
+
+  test("two unsafe drafts in a row are rejected and the quota is refunded", async () => {
+    resetBehaviour();
+    behaviour.verdicts = [{ safe: false, reason: "a" }, { safe: false, reason: "b" }];
+
+    const user = await newUser("free");
+    const gen = await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"));
+    assert.equal(gen.status, 422);
+    assert.equal(gen.json.error.code, "story_rejected");
+
+    const quota = (await call("GET", "/v1/entitlements", user.token)).json.quotas.find((q: any) => q.feature === "quick_story");
+    assert.equal(quota.used, 0);
+    assert.equal((await call("GET", "/v1/stories", user.token)).json.stories.length, 0);
+  });
+
+  test("a safety service outage fails closed", async () => {
+    resetBehaviour();
+    behaviour.verdicts = ["throw"];
+    const user = await newUser("family");
+    const gen = await call("POST", "/v1/stories/generate", user.token, inlineBody("quick_story"));
+    assert.equal(gen.status, 502);
+    assert.equal((await call("GET", "/v1/stories", user.token)).json.stories.length, 0);
+  });
+
+  test("verdict parsing fails closed", () => {
+    assert.deepEqual(parseVerdict('{"safe": true}'), { safe: true });
+    assert.deepEqual(parseVerdict('Вот ответ: {"safe": true, "reason": ""} спасибо'), { safe: true });
+    assert.equal(parseVerdict('{"safe": false, "reason": "кровь"}').safe, false);
+    assert.equal(parseVerdict('{"safe": "yes"}').safe, false);
+    assert.equal(parseVerdict("не знаю").safe, false);
+    assert.equal(parseVerdict("{broken").safe, false);
+  });
+});
+
+describe("media markers", () => {
+  test("splits text from image, audio and video cues", () => {
+    const parsed = parseMediaMarkers(
+      "# Title\n\nOne.\n\n[IMAGE: a]\n\nTwo.\n[AUDIO_CUE: calm]\n[ILLUSTRATION: b]\n\nEnd."
+    );
+    assert.equal(parsed.text, "# Title\n\nOne.\n\nTwo.\n\nEnd.");
+    assert.deepEqual(parsed.images, [
+      { prompt: "a", afterParagraph: 2 },
+      { prompt: "b", afterParagraph: 3 }
+    ]);
+    assert.deepEqual(parsed.audioCues, ["calm"]);
+  });
+});

@@ -9,17 +9,25 @@ import type {
 import type { ImageGenerator } from "./imageGenerator.js";
 import type { MediaStore } from "./mediaStore.js";
 import { parseMediaMarkers, type ImageCue } from "./mediaPrompts.js";
-import type { TextGenerator } from "./anthropicTextGenerator.js";
+import type { TextGenerator, TextResult } from "./anthropicTextGenerator.js";
+import type { SafetyChecker } from "./safetyChecker.js";
 
 export interface StoryPipelineDeps {
   textGenerator: TextGenerator;
+  safetyChecker: SafetyChecker;
   imageGenerator: ImageGenerator;
   mediaStore: MediaStore;
 }
 
+export class UnsafeStoryError extends Error {}
+
+/** The text is regenerated this many times when the safety check rejects it. */
+const SAFETY_RETRIES = 1;
+
 /**
- * Step-based generation: generate_text -> parse_media_prompts -> generate_images.
- * A failed text step fails the request; a failed image step only drops the pictures.
+ * Step-based generation: generate_text -> safety_check -> parse_media_prompts -> generate_images.
+ * A failed text or safety step fails the request (the safety check fails closed); a failed image
+ * step only drops the pictures.
  * Runs inline in the request for now; the same steps move into a BullMQ worker later.
  */
 export async function runStoryPipeline(
@@ -29,7 +37,7 @@ export async function runStoryPipeline(
   const steps: PipelineStep[] = [];
   const wantsImages = request.mediaOptions?.requestedTypes.includes("image") ?? false;
 
-  const textResult = await timed(steps, "generate_text", "anthropic", () => deps.textGenerator.generateStory(request));
+  const textResult = await generateSafeText(request, deps, steps);
 
   const parsed = await timed(steps, "parse_media_prompts", undefined, async () => parseMediaMarkers(textResult.text));
 
@@ -61,6 +69,60 @@ export async function runStoryPipeline(
     },
     steps
   };
+}
+
+async function generateSafeText(
+  request: GenerateStoryRequest,
+  deps: StoryPipelineDeps,
+  steps: PipelineStep[]
+): Promise<TextResult> {
+  let usage = { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
+  let lastReason: string | undefined;
+
+  for (let attempt = 0; attempt <= SAFETY_RETRIES; attempt++) {
+    const text = await timed(steps, "generate_text", "anthropic", () => deps.textGenerator.generateStory(request));
+    usage = {
+      inputTokens: usage.inputTokens + text.usage.inputTokens,
+      outputTokens: usage.outputTokens + text.usage.outputTokens,
+      estimatedCostUsd: usage.estimatedCostUsd + text.usage.estimatedCostUsd
+    };
+
+    const startedAt = Date.now();
+    let verdict;
+
+    try {
+      verdict = await deps.safetyChecker.check({
+        text: text.text,
+        age: request.childProfile.age,
+        language: request.childProfile.language
+      });
+    } catch (error) {
+      steps.push({
+        name: "safety_check",
+        status: "failed",
+        provider: "anthropic",
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : "Unknown error."
+      });
+      throw error;
+    }
+
+    steps.push({
+      name: "safety_check",
+      status: verdict.safe ? "succeeded" : "failed",
+      provider: "anthropic",
+      durationMs: Date.now() - startedAt,
+      error: verdict.safe ? undefined : verdict.reason
+    });
+
+    if (verdict.safe) {
+      return { ...text, usage };
+    }
+
+    lastReason = verdict.reason;
+  }
+
+  throw new UnsafeStoryError(`Story was rejected by the safety check: ${lastReason ?? "unsafe content"}`);
 }
 
 async function generateImages(

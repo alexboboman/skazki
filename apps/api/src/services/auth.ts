@@ -4,6 +4,7 @@ import type { MiddlewareHandler } from "hono";
 import { sign, verify, verifyWithJwks } from "hono/jwt";
 import type { Db } from "../db/client.js";
 import { users } from "../db/schema.js";
+import { TRIAL_DAYS } from "./entitlements.js";
 
 const APPLE_ISSUER = "https://appleid.apple.com";
 const APPLE_JWKS_URI = "https://appleid.apple.com/auth/keys";
@@ -46,7 +47,7 @@ export function createAuthService(db: Db, env: NodeJS.ProcessEnv = process.env):
   async function upsertUser(appleId: string, email?: string): Promise<AuthUser> {
     const [row] = await db
       .insert(users)
-      .values({ appleId, email })
+      .values({ appleId, email, trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 3600 * 1000) })
       .onConflictDoUpdate({
         target: users.appleId,
         set: { updatedAt: new Date(), ...(email ? { email } : {}) }

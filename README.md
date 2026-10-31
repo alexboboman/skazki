@@ -12,18 +12,21 @@ The project now has a small API scaffold:
 - `docs/product` — PRD and technical architecture.
 - `docs/stories` — generated story samples.
 
-The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `parse_media_prompts` → `generate_images`. Audio, video, entitlements, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Audio, video, the StoreKit integration, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
 
 Data and auth notes:
 
 - DB: Drizzle ORM over Postgres. With `DATABASE_URL` set (Neon in production) it uses `pg`; without it the API runs an embedded PGlite database in `apps/api/.data/pglite` (git-ignored), so local dev needs no Postgres. Migrations in `apps/api/drizzle/` are applied on startup; after editing `apps/api/src/db/schema.ts` run `npm run db:generate`.
 - Auth: `POST /v1/auth/apple` verifies an Apple identity token (RS256 via Apple JWKS, `iss`/`aud` checked against `APPLE_BUNDLE_ID`) and returns our own HS256 JWT (30 days, `JWT_SECRET`). The Apple flow is implemented but not yet tested against a real Apple token. For local work set `AUTH_DEV_LOGIN=1` to enable `POST /v1/auth/dev` (disabled when `NODE_ENV=production`).
 - Every `/v1/profiles` and `/v1/stories` route needs `Authorization: Bearer <token>` and only sees the caller's own data.
-- Limits: at most 5 child profiles per user for now. Per-tier limits (Free/Family/Family+) arrive with the Entitlement Service.
+- Entitlements: the tier comes from an active row in `subscriptions` (written by the future StoreKit / App Store Server Notifications integration), else a 7-day Family trial from first sign-in (`users.trial_ends_at`), else Free. The matrix from the PRD lives in `TIERS` in `apps/api/src/services/entitlements.ts` (profiles 1/3/5, Quick Story 3 per week on Free, Classic 1 per day on Free, arcs paid only, HD images paid only, "unlimited" = 100 per month fair use); it moves to remote config later. Quotas are counted in `usage_counters` (UTC day / Monday-based week / month), taken atomically before generation and given back if generation fails. `GET /v1/entitlements` returns the tier, limits and current usage for the client.
+- Paywall contract: when a limit blocks an action the API answers **HTTP 402** with `{ error: { code: "limit_reached" | "upgrade_required", feature, tier, limit?, resetsAt? } }`; `feature` is `profiles`, `story_arc`, `classic_story` or `quick_story`. Reading existing stories is never blocked.
+- Dev only (`AUTH_DEV_LOGIN=1`): `PUT /v1/dev/subscription` with `{ "tier": "free" | "family" | "family_plus" }` switches the caller's tier and ends the trial, to test limits without StoreKit.
 
 Pipeline notes:
 
 - Claude marks illustration spots with `[IMAGE: ...]` in the text; the pipeline strips the markers and generates one image per marker (3 for quick/classic stories, 2 for arc parts). `[AUDIO_CUE]` / `[VIDEO_CUE]` are parsed and ignored.
+- `safety_check` asks Claude to review the draft for the child's age (violence, scary scenes, etc.). An unsafe draft is regenerated once; a second rejection returns **422** `story_rejected`, and a safety service outage fails the request (fail closed). Token usage of all attempts is summed into `usage`.
 - A failed image step does not fail the request: the story is returned without pictures and the step is marked `failed` in `steps`.
 - Generated files go through the `MediaStore` interface. The local implementation writes to `apps/api/.media/` (git-ignored) and serves files at `GET /v1/media/:fileName`; Cloudflare R2 replaces it later.
 - The pipeline runs inline in the HTTP request. Moving it into a BullMQ worker is still open (see Phase 1 in the tech plan).
@@ -124,6 +127,8 @@ Endpoints (all under `/v1`, all except `auth/*` and `media/*` need a bearer toke
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/auth/apple`, `/auth/dev` | Sign in, returns `{ token, user }` |
+| GET | `/entitlements` | Tier, limits and usage (for the paywall) |
+| PUT | `/dev/subscription` | Dev only: switch tier |
 | GET, POST | `/profiles` | List / create child profiles |
 | GET, PUT, DELETE | `/profiles/:id` | Read / replace / delete a profile |
 | POST | `/stories/generate` | Generate and save a story (returns `storyId`) |
@@ -137,4 +142,7 @@ The generate response contains `storyId`, `story.text` (markers removed), `media
 
 ```bash
 npm run typecheck
+npm test
 ```
+
+`npm test` runs `apps/api/test/` (node:test) against an in-memory PGlite database with fake Claude and a mock image provider, so it needs no API keys or network.

@@ -3,16 +3,20 @@ import type {
   ApiErrorResponse,
   AuthResponse,
   ChildProfile,
-  GenerateStoryRequest
+  GenerateStoryRequest,
+  PaywallErrorResponse,
+  Tier
 } from "../../../packages/shared/src/index.js";
 import type { Db } from "./db/client.js";
 import type { TextGenerator } from "./services/anthropicTextGenerator.js";
 import { createAuthService, type AuthEnv } from "./services/auth.js";
+import { EntitlementService, type ReserveResult } from "./services/entitlements.js";
 import type { ImageGenerator } from "./services/imageGenerator.js";
 import type { MediaStore } from "./services/mediaStore.js";
 import { ProfileLimitError, ProfileService } from "./services/profileService.js";
 import { StoryService } from "./services/storyService.js";
-import { runStoryPipeline } from "./services/storyPipeline.js";
+import type { SafetyChecker } from "./services/safetyChecker.js";
+import { runStoryPipeline, UnsafeStoryError } from "./services/storyPipeline.js";
 import { validateChildProfileInput, validateGenerateStoryBody } from "./validation.js";
 
 export interface AppDeps {
@@ -21,15 +25,17 @@ export interface AppDeps {
   imageGenerator: ImageGenerator;
   /** Absent when ANTHROPIC_API_KEY is not configured. */
   textGenerator?: TextGenerator;
+  safetyChecker?: SafetyChecker;
 }
 
-type ErrorStatus = 400 | 401 | 404 | 409 | 500 | 502;
+type ErrorStatus = 400 | 401 | 404 | 422 | 500 | 502;
 
 export function createApp(deps: AppDeps) {
   const app = new Hono<AuthEnv>();
   const auth = createAuthService(deps.db);
   const profiles = new ProfileService(deps.db);
   const stories = new StoryService(deps.db);
+  const entitlements = new EntitlementService(deps.db);
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -71,7 +77,23 @@ export function createApp(deps: AppDeps) {
       const response: AuthResponse = await auth.loginDev(name);
       return c.json(response);
     });
+
+    app.put("/v1/dev/subscription", auth.requireAuth, async (c) => {
+      const body = await safeJson(c.req);
+      const tier = isRecord(body) ? body.tier : undefined;
+
+      if (tier !== "free" && tier !== "family" && tier !== "family_plus") {
+        return errorResponse(c, 400, "invalid_request", "tier must be free, family or family_plus.");
+      }
+
+      await entitlements.devSetTier(c.get("userId"), tier);
+      return c.json(await entitlements.snapshot(c.get("userId")));
+    });
   }
+
+  // --- Entitlements ---
+
+  app.get("/v1/entitlements", auth.requireAuth, async (c) => c.json(await entitlements.snapshot(c.get("userId"))));
 
   // Postgres rejects malformed uuids with an error, so answer 404 before touching the database.
   app.use("/v1/profiles/:id", uuidGuard("profile_not_found", "Profile not found."));
@@ -93,11 +115,20 @@ export function createApp(deps: AppDeps) {
       return errorResponse(c, 400, "invalid_request", input.message);
     }
 
+    const userId = c.get("userId");
+    const { tier, limit } = await entitlements.profileLimit(userId);
+
     try {
-      return c.json(await profiles.create(c.get("userId"), input.value), 201);
+      return c.json(await profiles.create(userId, input.value, limit), 201);
     } catch (error) {
       if (error instanceof ProfileLimitError) {
-        return errorResponse(c, 409, "profile_limit_reached", error.message);
+        return paywallResponse(c, {
+          code: "limit_reached",
+          message: error.message,
+          feature: "profiles",
+          tier,
+          limit: error.limit
+        });
       }
       throw error;
     }
@@ -127,7 +158,7 @@ export function createApp(deps: AppDeps) {
   // --- Stories ---
 
   app.post("/v1/stories/generate", auth.requireAuth, async (c) => {
-    if (!deps.textGenerator) {
+    if (!deps.textGenerator || !deps.safetyChecker) {
       return errorResponse(c, 500, "missing_api_key", "ANTHROPIC_API_KEY is not configured.");
     }
 
@@ -165,22 +196,41 @@ export function createApp(deps: AppDeps) {
       childProfile = body.value.childProfile as ChildProfile;
     }
 
-    const request: GenerateStoryRequest = {
-      childProfile,
-      format: body.value.format,
-      wordCount: body.value.wordCount,
-      mediaOptions: body.value.mediaOptions
-    };
+    const reservation = await entitlements.reserve(userId, body.value.format);
+
+    if (!reservation.ok) {
+      return paywallResponse(c, reservationToPaywall(reservation));
+    }
 
     try {
+      const maxQuality = await entitlements.maxImageQuality(userId);
+      const mediaOptions = body.value.mediaOptions && {
+        ...body.value.mediaOptions,
+        imageQuality: maxQuality === "standard" ? ("standard" as const) : body.value.mediaOptions.imageQuality
+      };
+
+      const request: GenerateStoryRequest = {
+        childProfile,
+        format: body.value.format,
+        wordCount: body.value.wordCount,
+        mediaOptions
+      };
+
       const result = await runStoryPipeline(request, {
         textGenerator: deps.textGenerator,
+        safetyChecker: deps.safetyChecker,
         imageGenerator: deps.imageGenerator,
         mediaStore: deps.mediaStore
       });
       const storyId = await stories.save(userId, profileId, request, result);
       return c.json({ ...result, storyId });
     } catch (error) {
+      await entitlements.refund(userId, reservation);
+
+      if (error instanceof UnsafeStoryError) {
+        return errorResponse(c, 422, "story_rejected", error.message);
+      }
+
       const message = error instanceof Error ? error.message : "Unknown generation error.";
       return errorResponse(c, 502, "story_generation_failed", message);
     }
@@ -222,6 +272,28 @@ function uuidGuard(code: string, message: string): MiddlewareHandler {
       return errorResponse(c, 404, code, message);
     }
     await next();
+  };
+}
+
+function paywallResponse(c: Context, error: PaywallErrorResponse["error"]) {
+  const payload: PaywallErrorResponse = { error };
+  return c.json(payload, 402);
+}
+
+function reservationToPaywall(result: Extract<ReserveResult, { ok: false }>): PaywallErrorResponse["error"] {
+  const tier: Tier = result.tier;
+
+  if (result.reason === "upgrade_required") {
+    return { code: "upgrade_required", message: "Story arcs need a paid plan.", feature: result.feature, tier };
+  }
+
+  return {
+    code: "limit_reached",
+    message: `Limit for ${result.feature} reached on the ${tier} plan.`,
+    feature: result.feature,
+    tier,
+    limit: result.limit,
+    resetsAt: result.resetsAt?.toISOString()
   };
 }
 

@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -7,9 +7,46 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   appleId: text("apple_id").unique(),
   email: text("email"),
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt()
 });
+
+/** Written by the StoreKit / App Store Server Notifications integration (not built yet) and by the dev endpoint. */
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    tier: text("tier").notNull(),
+    status: text("status").notNull(),
+    originalTransactionId: text("original_transaction_id").unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    gracePeriodExpiresAt: timestamp("grace_period_expires_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt()
+  },
+  (table) => [index("subscriptions_user_id_idx").on(table.userId)]
+);
+
+export const usageCounters = pgTable(
+  "usage_counters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    featureKey: text("feature_key").notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+    limitValue: integer("limit_value").notNull()
+  },
+  (table) => [unique("usage_counters_user_feature_period_unique").on(table.userId, table.featureKey, table.periodStart)]
+);
 
 export const childProfiles = pgTable(
   "child_profiles",

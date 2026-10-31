@@ -3,12 +3,13 @@ import type { ChildProfileDto, ChildProfileInput } from "../../../../packages/sh
 import type { Db } from "../db/client.js";
 import { childProfiles } from "../db/schema.js";
 
-/** Hard cap from the PRD. Per-tier limits (Free 1, Family 3, Family+ 5) arrive with the Entitlement Service. */
-export const MAX_PROFILES = 5;
-
 type ProfileRow = typeof childProfiles.$inferSelect;
 
-export class ProfileLimitError extends Error {}
+export class ProfileLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`At most ${limit} child profile(s) are allowed on this plan.`);
+  }
+}
 
 export class ProfileService {
   constructor(private readonly db: Db) {}
@@ -31,14 +32,15 @@ export class ProfileService {
     return row ? toDto(row) : undefined;
   }
 
-  async create(userId: string, input: ChildProfileInput): Promise<ChildProfileDto> {
+  /** `limit` is the profile cap of the user's tier, see EntitlementService. */
+  async create(userId: string, input: ChildProfileInput, limit: number): Promise<ChildProfileDto> {
     const [{ total }] = await this.db
       .select({ total: count() })
       .from(childProfiles)
       .where(eq(childProfiles.userId, userId));
 
-    if (total >= MAX_PROFILES) {
-      throw new ProfileLimitError(`At most ${MAX_PROFILES} child profiles are allowed.`);
+    if (total >= limit) {
+      throw new ProfileLimitError(limit);
     }
 
     const [row] = await this.db.insert(childProfiles).values({ userId, ...input }).returning();

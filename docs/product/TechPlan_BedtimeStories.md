@@ -125,7 +125,7 @@ interface AttributionProvider { identifyInstall(input): Promise<void> }
 
 ```sql
 -- Пользователи
-users (id, apple_id, email, created_at, updated_at)
+users (id, apple_id, email, trial_ends_at, created_at, updated_at)
 
 -- Атрибуция и consent
 user_attribution (user_id, appsflyer_id, anonymous_id, att_status, install_source, campaign_id, media_source, created_at)
@@ -135,7 +135,7 @@ user_consents (user_id, analytics_allowed, personalized_marketing_allowed, updat
 child_profiles (id, user_id, name, age, gender, interests[], worlds[], favorite_character, language, created_at)
 
 -- Подписки и entitlement-правила
-subscriptions (id, user_id, product_id, status, original_transaction_id, expires_at, grace_period_expires_at, created_at, updated_at)
+subscriptions (id, user_id, product_id, tier, status, original_transaction_id, expires_at, grace_period_expires_at, created_at, updated_at)
 entitlements (id, user_id, feature_key, limit_value, expires_at, source, created_at)
 usage_counters (id, user_id, feature_key, period_start, period_end, count, limit_value)
 feature_flags (key, enabled, rollout_percentage, config_json, updated_at)
@@ -276,8 +276,8 @@ Claude должен возвращать структурированные ма
 
 ### Phase 1 — MVP (6–8 нед)
 - [x] Backend: Auth (Apple Sign In + JWT) — `POST /v1/auth/apple` верифицирует identity token по JWKS Apple и выдаёт свой JWT; проверен только dev-вход, с реальным токеном Apple ещё не прогонялся
-- [ ] Backend: Entitlement Service + usage counters
-- [ ] Backend: Story generation worker (Claude + Image) как step-based pipeline — шаги `generate_text` → `parse_media_prompts` → `generate_images` реализованы inline в API (`apps/api/src/services/storyPipeline.ts`), осталось вынести в BullMQ-воркер, добавить `build_prompt`, `safety_check`, `persist_story_and_media`
+- [x] Backend: Entitlement Service + usage counters — матрица тарифов в коде (`entitlements.ts`), квоты в `usage_counters`, ответ 402 для пейволла, `GET /v1/entitlements`; источник подписки (StoreKit) подключится вместе с webhook-интеграцией, пока триал 7 дней и dev-переключатель тарифа
+- [ ] Backend: Story generation worker (Claude + Image) как step-based pipeline — шаги `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images` реализованы inline в API (`apps/api/src/services/storyPipeline.ts`), осталось вынести в BullMQ-воркер (сознательно отложено: для беты синхронной генерации достаточно, переход на jobs меняет контракт для клиента), добавить `build_prompt`, `persist_story_and_media`
 - [x] Backend: Profiles + библиотека историй (Drizzle, Postgres/PGlite) — `/v1/profiles`, `/v1/stories`, лимит 5 профилей, тарифные лимиты придут с Entitlement Service
 - [ ] Backend: Media Service (`media_assets`, R2, variants) — сейчас `MediaStore` с локальной папкой (`apps/api/.media`) и `GET /v1/media/:fileName`; R2 и таблица `media_assets` впереди
 - [ ] Backend: StoreKit 2 webhook integration + App Store Server Notifications v2
