@@ -1,4 +1,7 @@
 import { serve } from "@hono/node-server";
+
+// Must stay first: it fills process.env from .env before the other modules read their settings.
+import "./loadEnv.js";
 import { createApp } from "./app.js";
 import { createDb } from "./db/client.js";
 import { AnthropicTextGenerator } from "./services/anthropicTextGenerator.js";

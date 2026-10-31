@@ -27,6 +27,14 @@ public struct ReadableStory: Equatable, Sendable {
         }
     }
 
+    /// Path of the first illustration; the story cover on the reveal screen.
+    public var coverImagePath: String? {
+        for block in blocks {
+            if case .illustration(let asset) = block { return asset.url }
+        }
+        return nil
+    }
+
     public var paragraphs: [String] {
         blocks.compactMap { block in
             if case .paragraph(_, let text) = block { text } else { nil }

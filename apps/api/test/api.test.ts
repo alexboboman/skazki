@@ -9,6 +9,9 @@ process.env.JWT_SECRET = "test-secret";
 delete process.env.NODE_ENV;
 
 const { createApp } = await import("../src/app.js");
+const { PhygitalImageGenerator } = await import("../src/services/phygitalImageGenerator.js");
+const { createImageGenerator } = await import("../src/services/imageGenerator.js");
+const { runStoryPipeline } = await import("../src/services/storyPipeline.js");
 const { createAuthService } = await import("../src/services/auth.js");
 const { describeHero, wordsForMinutes, readingMinutes } = await import("../src/services/catalog.js");
 const { createDb } = await import("../src/db/client.js");
@@ -638,5 +641,143 @@ describe("library: favorites and reading progress", () => {
     const stranger = await newUser();
     assert.equal((await call("PATCH", `/v1/stories/${a}`, stranger.token, { favorite: false })).status, 404);
     assert.equal((await call("PATCH", "/v1/stories/not-a-uuid", user.token, { favorite: false })).status, 404);
+  });
+});
+
+describe("Phygital+ image provider", () => {
+  const png = Buffer.from("89504e470d0a1a0a", "hex");
+
+  function fakeFetch(script: Array<(url: string, init?: RequestInit) => Response>) {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      const next = script.shift();
+      assert.ok(next, `unexpected request: ${url}`);
+      return next(url, init);
+    };
+    return { fetchImpl, calls };
+  }
+
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  const make = (script: Array<(url: string, init?: RequestInit) => Response>, extra: object = {}) => {
+    const { fetchImpl, calls } = fakeFetch(script);
+    const generator = new PhygitalImageGenerator({ apiKey: "test-key", pollIntervalMs: 1, timeoutMs: 200, fetch: fetchImpl, ...extra });
+    return { generator, calls };
+  };
+
+  test("creates a task, polls until done and downloads the image", async () => {
+    const { generator, calls } = make([
+      () => json(200, { task_id: 7, status_url: "/api/tasks/7" }),
+      () => json(200, { task_id: 7, status: "running", outputs: null }),
+      () => json(200, { task_id: 7, status: "done", outputs: [{ name: "image", links: ["https://files.example/i.png?sig=1"] }] }),
+      () => new Response(png, { status: 200, headers: { "content-type": "image/png" } })
+    ]);
+
+    const image = await generator.generateImage({ prompt: "a fox", quality: "standard" });
+
+    assert.deepEqual(image.bytes, png);
+    assert.equal(image.contentType, "image/png");
+    assert.equal(calls[0].url, "https://dev.phygital.plus/api/models/gemini-image");
+    const headers = calls[0].init?.headers as Record<string, string>;
+    assert.equal(headers["x-api-key"], "test-key");
+    const body = JSON.parse(String(calls[0].init?.body));
+    assert.equal(body.inputs.text_prompt, "a fox");
+    assert.equal(body.params.model_name, "v3_1_lite");
+    assert.equal(calls[1].url, "https://dev.phygital.plus/api/tasks/7");
+    assert.equal(calls[3].url, "https://files.example/i.png?sig=1");
+  });
+
+  test("hd quality asks for the Pro model version", async () => {
+    const { generator, calls } = make([
+      () => json(200, { task_id: 8 }),
+      () => json(200, { status: "done", outputs: [{ links: ["https://files.example/i.png"] }] }),
+      () => new Response(png, { headers: { "content-type": "image/png" } })
+    ]);
+    await generator.generateImage({ prompt: "x", quality: "hd" });
+    assert.equal(JSON.parse(String(calls[0].init?.body)).params.model_name, "v3");
+  });
+
+  test("failed tasks, rejected requests, empty results and timeouts become errors", async () => {
+    await assert.rejects(
+      make([() => json(200, { task_id: 1 }), () => json(200, { status: "failed", error_message: "content policy" })]).generator.generateImage({ prompt: "x", quality: "standard" }),
+      /failed: content policy/
+    );
+    await assert.rejects(
+      make([() => json(401, { detail: "bad key" })]).generator.generateImage({ prompt: "x", quality: "standard" }),
+      /rejected the task \(HTTP 401\)/
+    );
+    await assert.rejects(
+      make([() => json(200, { task_id: 2 }), () => json(200, { status: "done", outputs: [] })]).generator.generateImage({ prompt: "x", quality: "standard" }),
+      /without an image/
+    );
+    const stuck = make([() => json(200, { task_id: 3 }), ...Array.from({ length: 500 }, () => () => json(200, { status: "running" }))], { timeoutMs: 30 });
+    await assert.rejects(stuck.generator.generateImage({ prompt: "x", quality: "standard" }), /did not finish/);
+  });
+
+  test("a failed download is an error", async () => {
+    await assert.rejects(
+      make([
+        () => json(200, { task_id: 4 }),
+        () => json(200, { status: "done", outputs: [{ links: ["https://files.example/x.png"] }] }),
+        () => new Response("nope", { status: 403 })
+      ]).generator.generateImage({ prompt: "x", quality: "standard" }),
+      /download failed with HTTP 403/
+    );
+  });
+
+  test("the factory prefers Phygital+ when its key is set and honours IMAGE_PROVIDER", () => {
+    assert.equal(createImageGenerator({ PHYGITAL_API_KEY: "k" }).provider, "phygital");
+    assert.equal(createImageGenerator({ OPENAI_API_KEY: "k" }).provider, "openai");
+    assert.equal(createImageGenerator({}).provider, "mock");
+    assert.equal(createImageGenerator({ PHYGITAL_API_KEY: "k", IMAGE_PROVIDER: "mock" }).provider, "mock");
+    assert.equal(createImageGenerator({ PHYGITAL_API_KEY: "k", IMAGE_PROVIDER: "" }).provider, "phygital");
+    assert.throws(() => createImageGenerator({ IMAGE_PROVIDER: "phygital" }), /requires PHYGITAL_API_KEY/);
+    assert.throws(() => createImageGenerator({ IMAGE_PROVIDER: "nope" }), /Unknown IMAGE_PROVIDER/);
+  });
+});
+
+describe("pipeline images run side by side", () => {
+  const request = {
+    childProfile: { name: "Маша", age: 4, language: "Русский", interests: [], world: "лес" },
+    format: "quick_story" as const,
+    mediaOptions: { requestedTypes: ["image" as const] }
+  };
+  const store = { save: async () => ({ id: crypto.randomUUID(), url: "/v1/media/x.png" }), read: async () => undefined };
+
+  test("pictures overlap in time and keep the order of their markers", async () => {
+    let running = 0;
+    let peak = 0;
+    const generator = {
+      provider: "slow",
+      async generateImage(input: { prompt: string }) {
+        running++;
+        peak = Math.max(peak, running);
+        await new Promise((resolve) => setTimeout(resolve, input.prompt.includes("boy and dragon") ? 60 : 10));
+        running--;
+        return { bytes: Buffer.from("x"), contentType: "image/png", estimatedCostUsd: 0.5 };
+      }
+    };
+
+    const result = await runStoryPipeline(request, { textGenerator, safetyChecker, imageGenerator: generator, mediaStore: store });
+    assert.equal(peak, 2);
+    assert.deepEqual(result.media.map((m) => m.afterParagraph), [1, 2]);
+    assert.ok(result.media[0].prompt.includes("boy and dragon"), "the slow first picture still comes first");
+    assert.equal(result.usage.estimatedCostUsd, 0.001 + 1);
+  });
+
+  test("one failed picture does not drop the others", async () => {
+    const generator = {
+      provider: "flaky",
+      async generateImage(input: { prompt: string }) {
+        if (input.prompt.includes("stars")) throw new Error("provider hiccup");
+        return { bytes: Buffer.from("x"), contentType: "image/png", estimatedCostUsd: 0 };
+      }
+    };
+    const result = await runStoryPipeline(request, { textGenerator, safetyChecker, imageGenerator: generator, mediaStore: store });
+    assert.equal(result.media.length, 1);
+    const step = result.steps.find((s) => s.name === "generate_images");
+    assert.equal(step?.status, "failed");
+    assert.match(step?.error ?? "", /provider hiccup/);
   });
 });

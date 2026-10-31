@@ -16,10 +16,11 @@ export interface MediaStore {
 const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/png": "png",
+  "image/jpeg": "jpg",
   "image/svg+xml": "svg"
 };
 
-const FILE_NAME = /^[0-9a-f-]{36}\.(webp|png|svg)$/;
+const FILE_NAME = /^[0-9a-f-]{36}\.(webp|png|jpg|svg)$/;
 
 export class LocalMediaStore implements MediaStore {
   constructor(private readonly dir = process.env.MEDIA_DIR ?? path.resolve("apps/api/.media")) {}

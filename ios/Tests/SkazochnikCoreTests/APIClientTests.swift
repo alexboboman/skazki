@@ -269,6 +269,12 @@ private extension URLRequest {
         #expect(story.blocks.map(\.id) == ["p1", "p2", "mx"])
     }
 
+    @Test func theFirstIllustrationIsTheCover() {
+        let story = ReadableStory(title: "Т", text: "Раз.\n\nДва.", media: [asset("b", after: 2), asset("a", after: 1)], readingMinutes: 1)
+        #expect(story.coverImagePath == "/v1/media/a.webp")
+        #expect(ReadableStory(title: "Т", text: "Раз.", media: [], readingMinutes: 1).coverImagePath == nil)
+    }
+
     @Test func ignoresBlankParagraphs() {
         let story = ReadableStory(title: "Т", text: "\n\nРаз.\n\n  \n\nДва.\n", media: [], readingMinutes: 1)
         #expect(story.paragraphs == ["Раз.", "Два."])

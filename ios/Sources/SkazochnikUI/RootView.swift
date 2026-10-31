@@ -53,7 +53,7 @@ public struct RootView: View {
                 onClose: { stage = .done(profile, trial: false) }
             )
         case .reveal(let profile, let story):
-            RevealView(story: story, hero: HeroInfo(profile: profile)) {
+            RevealView(story: story, hero: HeroInfo(profile: profile), coverURL: story.coverImagePath.flatMap(client.mediaURL)) {
                 stage = .reading(profile, story)
             }
         case .reading(let profile, let story):

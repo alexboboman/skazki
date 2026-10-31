@@ -52,6 +52,8 @@ struct BookCover: View {
     var kicker = "Сказка на ночь"
     var height: CGFloat = 330
     var heroSize: CGFloat = 132
+    /// The generated illustration; the night scene stands in until it loads (or if it cannot be shown).
+    var imageURL: URL?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -59,6 +61,17 @@ struct BookCover: View {
             HeroAvatarView(appearance: hero.appearance, size: heroSize)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, 30)
+            if let imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                            .overlay(alignment: .top) {
+                                LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                                    .frame(height: 90)
+                            }
+                    }
+                }
+            }
             Text(kicker)
                 .kicker()
                 .foregroundStyle(Theme.gold)

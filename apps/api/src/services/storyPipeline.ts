@@ -142,32 +142,40 @@ async function generateImages(
   steps: PipelineStep[]
 ): Promise<{ media: MediaAsset[]; costUsd: number }> {
   const startedAt = Date.now();
-  const media: MediaAsset[] = [];
-  let costUsd = 0;
   let firstError: string | undefined;
 
-  // Sequential on purpose: keeps provider rate limits and cost predictable in the prototype.
-  for (const cue of cues) {
-    try {
-      const prompt = buildIllustrationPrompt(cue.prompt, profile, heroes);
-      const image = await deps.imageGenerator.generateImage({ prompt, quality });
-      const stored = await deps.mediaStore.save(image.bytes, image.contentType);
+  // Pictures are independent, and a provider call takes seconds, so they run side by side (a story has
+  // two or three). Results keep the order of the illustration markers.
+  const results = await Promise.all(
+    cues.map(async (cue): Promise<{ asset: MediaAsset; costUsd: number } | undefined> => {
+      try {
+        const prompt = buildIllustrationPrompt(cue.prompt, profile, heroes);
+        const image = await deps.imageGenerator.generateImage({ prompt, quality });
+        const stored = await deps.mediaStore.save(image.bytes, image.contentType);
 
-      costUsd += image.estimatedCostUsd;
-      media.push({
-        id: stored.id,
-        type: "image",
-        variant: quality,
-        provider: deps.imageGenerator.provider,
-        url: stored.url,
-        contentType: image.contentType,
-        prompt,
-        afterParagraph: cue.afterParagraph
-      });
-    } catch (error) {
-      firstError ??= error instanceof Error ? error.message : "Unknown image generation error.";
-    }
-  }
+        return {
+          costUsd: image.estimatedCostUsd,
+          asset: {
+            id: stored.id,
+            type: "image",
+            variant: quality,
+            provider: deps.imageGenerator.provider,
+            url: stored.url,
+            contentType: image.contentType,
+            prompt,
+            afterParagraph: cue.afterParagraph
+          }
+        };
+      } catch (error) {
+        firstError ??= error instanceof Error ? error.message : "Unknown image generation error.";
+        return undefined;
+      }
+    })
+  );
+
+  const done = results.filter((result): result is { asset: MediaAsset; costUsd: number } => result !== undefined);
+  const media = done.map((result) => result.asset);
+  const costUsd = done.reduce((sum, result) => sum + result.costUsd, 0);
 
   steps.push({
     name: "generate_images",

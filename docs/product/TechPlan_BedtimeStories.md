@@ -43,13 +43,15 @@
 | Задача | Провайдер | Модель |
 |---|---|---|
 | Генерация текста сказки | **Anthropic Claude** | claude-sonnet-4-6 |
-| Генерация иллюстраций | **OpenAI** | gpt-image-1 (или DALL-E 3) |
+| Генерация иллюстраций | **Phygital+** | `gemini-image` (async task API); OpenAI gpt-image-1 остаётся запасным провайдером |
 | Резервный генератор изображений | **Flux** (Black Forest Labs) via Replicate | flux-1.1-pro |
 | Аудио/TTS | AVSpeechSynthesizer / ElevenLabs | on-device для базового TTS, cloud voices для premium |
 | Видео (future) | TBD | подключается через VideoGenerator-интерфейс |
 | Safety classifier | Claude (встроенный) | — |
 
-> **Примечание по изображениям:** gpt-image-1 — новая модель OpenAI с высоким качеством. Flux — быстрая и дешёвая альтернатива. Рекомендуется A/B тест по качеству + стоимости.
+> **Решение по изображениям (факт):** основной провайдер — Phygital+ (один ключ, много моделей; ~13 с на картинку), OpenAI подключается через `IMAGE_PROVIDER=openai`. Стоимость картинки у Phygital+ ещё не измерена.
+>
+> **Примечание по изображениям (исходное):** gpt-image-1 — новая модель OpenAI с высоким качеством. Flux — быстрая и дешёвая альтернатива. Рекомендуется A/B тест по качеству + стоимости.
 
 ---
 
@@ -269,7 +271,7 @@ Claude должен возвращать структурированные ма
 
 ### Phase 0 — Исследование (2 нед)
 - [ ] Финализация PRD и дизайна
-- [ ] Выбор Image API (gpt-image-1 vs Flux A/B)
+- [x] Выбор Image API: Phygital+ (gemini-image); A/B с другими моделями Phygital+ — позже
 - [ ] Прототип промпта (10 тест-историй, ручная оценка качества)
 - [ ] Утвердить event taxonomy и privacy-safe analytics schema
 - [ ] Спроектировать entitlement matrix и usage limits
@@ -360,7 +362,7 @@ Claude должен возвращать структурированные ма
 | Интерфейс | Возможные реализации |
 |---|---|
 | `TextGenerator` | Claude Haiku, Claude Sonnet |
-| `ImageGenerator` | OpenAI gpt-image-1, Flux via Replicate |
+| `ImageGenerator` | Phygital+ (gemini-image), OpenAI gpt-image-1, mock |
 | `AudioGenerator` | AVSpeechSynthesizer metadata, ElevenLabs |
 | `VideoGenerator` | Future provider |
 | `AnalyticsProvider` | Amplitude, Firebase |

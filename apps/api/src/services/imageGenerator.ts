@@ -1,4 +1,5 @@
 import { postJson } from "./httpClient.js";
+import { PhygitalImageGenerator } from "./phygitalImageGenerator.js";
 
 export type ImageQuality = "standard" | "hd";
 
@@ -90,7 +91,22 @@ export class MockImageGenerator implements ImageGenerator {
 }
 
 export function createImageGenerator(env: NodeJS.ProcessEnv = process.env): ImageGenerator {
-  const provider = env.IMAGE_PROVIDER ?? (env.OPENAI_API_KEY ? "openai" : "mock");
+  const provider = env.IMAGE_PROVIDER || (env.PHYGITAL_API_KEY ? "phygital" : env.OPENAI_API_KEY ? "openai" : "mock");
+
+  if (provider === "phygital") {
+    if (!env.PHYGITAL_API_KEY) {
+      throw new Error("IMAGE_PROVIDER=phygital requires PHYGITAL_API_KEY.");
+    }
+    return new PhygitalImageGenerator({
+      apiKey: env.PHYGITAL_API_KEY,
+      baseUrl: env.PHYGITAL_BASE_URL || undefined,
+      model: env.PHYGITAL_IMAGE_MODEL || undefined,
+      modelVersions:
+        env.PHYGITAL_MODEL_STANDARD || env.PHYGITAL_MODEL_HD
+          ? { standard: env.PHYGITAL_MODEL_STANDARD || "v3_1_lite", hd: env.PHYGITAL_MODEL_HD || "v3" }
+          : undefined
+    });
+  }
 
   if (provider === "openai") {
     if (!env.OPENAI_API_KEY) {
@@ -103,7 +119,7 @@ export function createImageGenerator(env: NodeJS.ProcessEnv = process.env): Imag
     return new MockImageGenerator();
   }
 
-  throw new Error(`Unknown IMAGE_PROVIDER "${provider}". Use openai or mock.`);
+  throw new Error(`Unknown IMAGE_PROVIDER "${provider}". Use phygital, openai or mock.`);
 }
 
 function parseOpenAIResponse(rawBody: string): OpenAIImageResponse {

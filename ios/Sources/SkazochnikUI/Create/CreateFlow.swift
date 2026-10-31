@@ -40,7 +40,7 @@ struct CreateFlow: View {
                     onClose: { stage = .form }
                 )
             case .reveal(let story, let main):
-                RevealView(story: story, hero: HeroInfo(profile: main), kicker: "Готово · новая сказка") {
+                RevealView(story: story, hero: HeroInfo(profile: main), kicker: "Готово · новая сказка", coverURL: story.coverImagePath.flatMap(app.client.mediaURL)) {
                     stage = .reading(story, main)
                 }
             case .reading(let story, let main):

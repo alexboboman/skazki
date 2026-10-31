@@ -13,7 +13,7 @@ The project now has a small API scaffold:
 - `docs/product` — PRD and technical architecture.
 - `docs/stories` — generated story samples.
 
-The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Audio, video, the StoreKit integration, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (Phygital+ `gemini-image`, OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Audio, video, the StoreKit integration, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
 
 Data and auth notes:
 
@@ -94,7 +94,11 @@ ANTHROPIC_API_KEY=... npm run dev:api
 
 No keys yet? `TEXT_PROVIDER=mock IMAGE_PROVIDER=mock` serves a canned story and placeholder images, so the app can be tried end to end (ignored in production). Dev-only `TRIAL_DAYS=0` starts new accounts on Free (instead of the 7-day Family trial) to try the limits and the paywall. The iOS app is covered in `ios/README.md`.
 
-Images: set `OPENAI_API_KEY` to use `gpt-image-1`, or `IMAGE_PROVIDER=mock` for offline placeholders. Without a key the API falls back to the mock provider (visible as `provider: "mock"` in `steps`).
+The server loads `.env` itself on start (`apps/api/src/loadEnv.ts`); variables already set in the environment win.
+
+Images: `IMAGE_PROVIDER` picks `phygital`, `openai` or `mock`. When it is empty the first provider with a key wins: `PHYGITAL_API_KEY`, then `OPENAI_API_KEY`, else the offline mock (visible as `provider: "mock"` in `steps`).
+- **Phygital+** (`dev.phygital.plus`) is an async task API: the generator creates a task (`POST /api/models/gemini-image`, `X-Api-Key`), polls `/api/tasks/{id}` and downloads the first output link. Standard quality uses `model_name=v3_1_lite`, HD uses `v3` (override with `PHYGITAL_MODEL_STANDARD/HD`). One image takes about 13 s and comes back as a ~1.9 MB PNG (no compression yet); the cost per image is not known yet, so `usage.estimatedCostUsd` counts it as 0.
+- The illustrations of one story are generated in parallel and keep the order of their `[IMAGE: …]` markers; a failed one is skipped and marks the `generate_images` step as failed.
 
 Healthcheck:
 
