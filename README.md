@@ -92,6 +92,8 @@ Put your real key in `.env` or export it in the shell.
 ANTHROPIC_API_KEY=... npm run dev:api
 ```
 
+No keys yet? `TEXT_PROVIDER=mock IMAGE_PROVIDER=mock` serves a canned story and placeholder images, so the app can be tried end to end (ignored in production).
+
 Images: set `OPENAI_API_KEY` to use `gpt-image-1`, or `IMAGE_PROVIDER=mock` for offline placeholders. Without a key the API falls back to the mock provider (visible as `provider: "mock"` in `steps`).
 
 Healthcheck:
