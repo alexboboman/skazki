@@ -50,7 +50,13 @@ export class ProfileService {
   async update(userId: string, id: string, input: ChildProfileInput): Promise<ChildProfileDto | undefined> {
     const [row] = await this.db
       .update(childProfiles)
-      .set({ ...input, gender: input.gender ?? null, favoriteCharacter: input.favoriteCharacter ?? null, updatedAt: new Date() })
+      .set({
+        ...input,
+        gender: input.gender ?? null,
+        appearance: input.appearance ?? null,
+        favoriteCharacter: input.favoriteCharacter ?? null,
+        updatedAt: new Date()
+      })
       .where(and(eq(childProfiles.id, id), eq(childProfiles.userId, userId)))
       .returning();
     return row ? toDto(row) : undefined;
@@ -70,9 +76,10 @@ function toDto(row: ProfileRow): ChildProfileDto {
     id: row.id,
     name: row.name,
     age: row.age,
-    gender: row.gender ?? undefined,
+    gender: (row.gender ?? undefined) as ChildProfileDto["gender"],
+    appearance: row.appearance ?? undefined,
     interests: row.interests,
-    worlds: row.worlds,
+    worlds: row.worlds as ChildProfileDto["worlds"],
     favoriteCharacter: row.favoriteCharacter ?? undefined,
     language: row.language,
     createdAt: row.createdAt.toISOString()

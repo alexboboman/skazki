@@ -9,6 +9,8 @@ process.env.JWT_SECRET = "test-secret";
 delete process.env.NODE_ENV;
 
 const { createApp } = await import("../src/app.js");
+const { createAuthService } = await import("../src/services/auth.js");
+const { describeHero, wordsForMinutes, readingMinutes } = await import("../src/services/catalog.js");
 const { createDb } = await import("../src/db/client.js");
 const { MockImageGenerator } = await import("../src/services/imageGenerator.js");
 const { LocalMediaStore } = await import("../src/services/mediaStore.js");
@@ -17,14 +19,14 @@ const { parseVerdict } = await import("../src/services/safetyChecker.js");
 const { parseMediaMarkers } = await import("../src/services/mediaPrompts.js");
 
 const RAW_STORY =
-  "# Саша и дракончик\n\nЖил-был Саша.\n\n[IMAGE: boy and dragon]\n\nОни подружились.\n\n[IMAGE: stars]\n\nКонец.";
+  "# Саша и дракончик\n\nЖил-был Саша.\n\n[IMAGE: boy and dragon]\n\nОни подружились.\n\n[IMAGE: stars]\n\nКонец.\n\n[MORAL: Дружба делает мир теплее.]\n[CLOSING: Спи сладко.]";
 
 const profile = {
   name: "Саша",
   age: 5,
   language: "Русский",
   interests: ["динозавры"],
-  worlds: ["волшебный лес"],
+  worlds: ["forest"],
   favoriteCharacter: "Рекс"
 };
 
@@ -37,10 +39,13 @@ const inlineBody = (format = "quick_story", extra: object = {}) => ({
 // Knobs the tests flip to simulate model behaviour.
 const behaviour = { textFails: false, verdicts: [] as Array<{ safe: boolean; reason?: string } | "throw"> };
 let textCalls = 0;
+let lastRequest: any;
+const imagePrompts: string[] = [];
 
 const textGenerator = {
-  async generateStory() {
+  async generateStory(request: unknown) {
     textCalls++;
+    lastRequest = request;
     if (behaviour.textFails) {
       throw new Error("anthropic down");
     }
@@ -58,14 +63,24 @@ const safetyChecker = {
   }
 };
 
+const recordingImages = {
+  provider: "mock",
+  async generateImage(input: { prompt: string; quality: "standard" | "hd" }) {
+    imagePrompts.push(input.prompt);
+    return new MockImageGenerator().generateImage(input);
+  }
+};
+
 let app: ReturnType<typeof createApp>;
+let db: Awaited<ReturnType<typeof createDb>>;
 let userCounter = 0;
 
 before(async () => {
+  db = await createDb({ dataDir: "memory://" });
   app = createApp({
-    db: await createDb({ dataDir: "memory://" }),
+    db,
     mediaStore: new LocalMediaStore(await mkdtemp(path.join(os.tmpdir(), "skazochnik-media-"))),
-    imageGenerator: new MockImageGenerator(),
+    imageGenerator: recordingImages,
     textGenerator,
     safetyChecker
   });
@@ -206,7 +221,7 @@ describe("story generation", () => {
     const created = (await call("POST", "/v1/profiles", user.token, profile)).json;
 
     const gen = await call("POST", "/v1/stories/generate", user.token, {
-      profileId: created.id,
+      profileIds: [created.id],
       format: "quick_story",
       mediaOptions: { requestedTypes: ["image"], imageQuality: "hd" }
     });
@@ -222,11 +237,22 @@ describe("story generation", () => {
     assert.equal(list.length, 1);
     assert.ok(list[0].coverImageUrl.startsWith("/v1/media/"));
     assert.equal((await call("GET", `/v1/stories?profileId=${created.id}`, user.token)).json.stories.length, 1);
+    assert.equal(gen.json.story.moral, "Дружба делает мир теплее.");
+    assert.ok(gen.json.story.readingMinutes >= 1);
     assert.equal((await call("GET", "/v1/stories?profileId=abc", user.token)).status, 400);
 
     const full = (await call("GET", `/v1/stories/${gen.json.storyId}`, user.token)).json;
     assert.equal(full.parts[0].media.length, 2);
     assert.ok(!full.parts[0].text.includes("[IMAGE"));
+    assert.ok(!full.parts[0].text.includes("# "), "the heading is not part of the body");
+    assert.equal(full.title, "Саша и дракончик");
+    assert.equal(full.moral, "Дружба делает мир теплее.");
+    assert.equal(full.closing, "Спи сладко.");
+    assert.equal(full.world, "forest");
+    assert.deepEqual(full.heroIds, [created.id]);
+    assert.equal(full.favorite, false);
+    assert.equal(full.readProgress, 0);
+    assert.deepEqual(gen.json.media.map((m: any) => m.afterParagraph), [1, 2]);
 
     const media = await call("GET", full.parts[0].media[0].url);
     assert.equal(media.status, 200);
@@ -246,8 +272,9 @@ describe("story generation", () => {
     const created = (await call("POST", "/v1/profiles", a.token, profile)).json;
 
     assert.equal((await call("POST", "/v1/stories/generate", a.token, { format: "quick_story" })).status, 400);
-    assert.equal((await call("POST", "/v1/stories/generate", b.token, { profileId: created.id, format: "quick_story" })).status, 404);
-    assert.equal((await call("POST", "/v1/stories/generate", a.token, { profileId: "abc", format: "quick_story" })).status, 404);
+    assert.equal((await call("POST", "/v1/stories/generate", b.token, { profileIds: [created.id], format: "quick_story" })).status, 404);
+    assert.equal((await call("POST", "/v1/stories/generate", a.token, { profileIds: ["abc"], format: "quick_story" })).status, 404);
+    assert.equal((await call("POST", "/v1/stories/generate", a.token, { profileIds: [], format: "quick_story" })).status, 400);
   });
 
   test("free tier gets standard images even when hd is requested", async () => {
@@ -375,15 +402,207 @@ describe("safety check", () => {
 });
 
 describe("media markers", () => {
-  test("splits text from image, audio and video cues", () => {
+  test("splits title, body, moral, closing and cues", () => {
     const parsed = parseMediaMarkers(
-      "# Title\n\nOne.\n\n[IMAGE: a]\n\nTwo.\n[AUDIO_CUE: calm]\n[ILLUSTRATION: b]\n\nEnd."
+      "# Title\n\nOne.\n\n[IMAGE: a]\n\nTwo.\n[AUDIO_CUE: calm]\n[ILLUSTRATION: b]\n\nEnd.\n\n[MORAL: Be kind.]\n[CLOSING: Sleep well.]"
     );
-    assert.equal(parsed.text, "# Title\n\nOne.\n\nTwo.\n\nEnd.");
+    assert.equal(parsed.title, "Title");
+    assert.equal(parsed.text, "One.\n\nTwo.\n\nEnd.");
     assert.deepEqual(parsed.images, [
-      { prompt: "a", afterParagraph: 2 },
-      { prompt: "b", afterParagraph: 3 }
+      { prompt: "a", afterParagraph: 1 },
+      { prompt: "b", afterParagraph: 2 }
     ]);
     assert.deepEqual(parsed.audioCues, ["calm"]);
+    assert.equal(parsed.moral, "Be kind.");
+    assert.equal(parsed.closing, "Sleep well.");
+  });
+
+  test("text without heading or moral still parses", () => {
+    const parsed = parseMediaMarkers("Once.\n\nTwice.");
+    assert.equal(parsed.title, undefined);
+    assert.equal(parsed.text, "Once.\n\nTwice.");
+    assert.equal(parsed.moral, undefined);
+  });
+});
+
+describe("anonymous accounts", () => {
+  test("guest onboarding works without signing in and keeps the trial", async () => {
+    resetBehaviour();
+    const { status, json } = await call("POST", "/v1/auth/anonymous");
+    assert.equal(status, 201);
+    assert.equal(json.user.anonymous, true);
+
+    const ent = (await call("GET", "/v1/entitlements", json.token)).json;
+    assert.equal(ent.tier, "family");
+    assert.equal(ent.source, "trial");
+
+    const created = await call("POST", "/v1/profiles", json.token, profile);
+    assert.equal(created.status, 201);
+    const gen = await call("POST", "/v1/stories/generate", json.token, { profileIds: [created.json.id], format: "quick_story" });
+    assert.equal(gen.status, 200);
+  });
+
+  test("linking Apple keeps the guest data, trial and id", async () => {
+    resetBehaviour();
+    const guest = (await call("POST", "/v1/auth/anonymous")).json;
+    const created = (await call("POST", "/v1/profiles", guest.token, profile)).json;
+    const auth = createAuthService(db);
+
+    const linked = await auth.completeAppleLogin("apple-sub-link-1", "mama@example.com", guest.user.id);
+    assert.equal(linked.user.id, guest.user.id);
+    assert.equal(linked.user.anonymous, false);
+    assert.equal(linked.user.email, "mama@example.com");
+
+    // The old guest token still works, and so does signing in with Apple alone later.
+    assert.equal((await call("GET", `/v1/profiles/${created.id}`, guest.token)).status, 200);
+    const again = await auth.completeAppleLogin("apple-sub-link-1", undefined);
+    assert.equal(again.user.id, guest.user.id);
+  });
+
+  test("an Apple ID that already has an account signs into it without merging the guest", async () => {
+    const first = await createAuthService(db).completeAppleLogin("apple-sub-existing", undefined);
+    const guest = (await call("POST", "/v1/auth/anonymous")).json;
+
+    const result = await createAuthService(db).completeAppleLogin("apple-sub-existing", undefined, guest.user.id);
+    assert.equal(result.user.id, first.user.id);
+    assert.notEqual(result.user.id, guest.user.id);
+  });
+
+  test("a non-guest account cannot be re-linked to another Apple ID", async () => {
+    const a = await createAuthService(db).completeAppleLogin("apple-sub-a", undefined);
+    const b = await createAuthService(db).completeAppleLogin("apple-sub-b", undefined, a.user.id);
+    assert.notEqual(b.user.id, a.user.id);
+  });
+});
+
+describe("profile look and worlds", () => {
+  const look = { skin: 1, hair: 3, hairStyle: "long", outfit: 0 };
+
+  test("stores gender and appearance and normalises 'none'", async () => {
+    const user = await newUser("family");
+    const created = await call("POST", "/v1/profiles", user.token, { ...profile, gender: "girl", appearance: look });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.gender, "girl");
+    assert.deepEqual(created.json.appearance, look);
+
+    const none = await call("POST", "/v1/profiles", user.token, { ...profile, gender: "none" });
+    assert.equal(none.json.gender, undefined);
+    assert.equal(none.json.appearance, undefined);
+  });
+
+  test("rejects unknown worlds and out-of-range looks", async () => {
+    const user = await newUser("family");
+    assert.equal((await call("POST", "/v1/profiles", user.token, { ...profile, worlds: ["волшебный лес"] })).status, 400);
+    assert.equal((await call("POST", "/v1/profiles", user.token, { ...profile, gender: "robot" })).status, 400);
+    assert.equal((await call("POST", "/v1/profiles", user.token, { ...profile, appearance: { ...look, skin: 9 } })).status, 400);
+    assert.equal((await call("POST", "/v1/profiles", user.token, { ...profile, appearance: { ...look, hairStyle: "bald" } })).status, 400);
+  });
+
+  test("the hero's look is written into every illustration prompt", async () => {
+    resetBehaviour();
+    imagePrompts.length = 0;
+    const user = await newUser("family");
+    const hero = (await call("POST", "/v1/profiles", user.token, { ...profile, name: "Аня", gender: "girl", appearance: look })).json;
+
+    await call("POST", "/v1/stories/generate", user.token, {
+      profileIds: [hero.id],
+      format: "quick_story",
+      mediaOptions: { requestedTypes: ["image"] }
+    });
+
+    assert.equal(imagePrompts.length, 2);
+    for (const prompt of imagePrompts) {
+      assert.ok(prompt.includes("Аня, a 5-year-old girl with light skin, long blond hair, wearing a purple outfit"), prompt);
+    }
+  });
+
+  test("describeHero without a look still names the hero", () => {
+    assert.equal(describeHero({ name: "Миша", age: 3, language: "Русский", interests: [], world: "x" }), "Миша, a 3-year-old child");
+  });
+});
+
+describe("story creation options", () => {
+  test("topic, length, world override and several heroes reach the text generator", async () => {
+    resetBehaviour();
+    const user = await newUser("family_plus");
+    const anya = (await call("POST", "/v1/profiles", user.token, { ...profile, name: "Аня", age: 5, worlds: ["ocean"] })).json;
+    const misha = (await call("POST", "/v1/profiles", user.token, { ...profile, name: "Миша", age: 3, worlds: ["space"] })).json;
+
+    const gen = await call("POST", "/v1/stories/generate", user.token, {
+      profileIds: [anya.id, misha.id],
+      format: "quick_story",
+      topic: "Не страшно в темноте",
+      lengthMinutes: 7,
+      world: "castle"
+    });
+    assert.equal(gen.status, 200);
+    assert.equal(lastRequest.wordCount, wordsForMinutes(7));
+    assert.equal(lastRequest.topic, "Не страшно в темноте");
+    assert.equal(lastRequest.childProfile.name, "Аня");
+    assert.deepEqual(lastRequest.companions.map((c: any) => c.name), ["Миша"]);
+    assert.ok(lastRequest.childProfile.world.includes("замк"));
+
+    const story = (await call("GET", `/v1/stories/${gen.json.storyId}`, user.token)).json;
+    assert.deepEqual(story.heroIds, [anya.id, misha.id]);
+    assert.equal(story.world, "castle");
+
+    // The story shows up in each hero's library.
+    for (const hero of [anya, misha]) {
+      assert.equal((await call("GET", `/v1/stories?profileId=${hero.id}`, user.token)).json.stories.length, 1);
+    }
+  });
+
+  test("an explicit wordCount beats lengthMinutes, a profile's own world is the default", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const hero = (await call("POST", "/v1/profiles", user.token, { ...profile, worlds: ["jungle"] })).json;
+    await call("POST", "/v1/stories/generate", user.token, { profileIds: [hero.id], format: "quick_story", wordCount: 300, lengthMinutes: 12 });
+    assert.equal(lastRequest.wordCount, 300);
+    assert.ok(lastRequest.childProfile.world.includes("джунгли"));
+  });
+
+  test("validates the new options", async () => {
+    const user = await newUser("family");
+    const hero = (await call("POST", "/v1/profiles", user.token, profile)).json;
+    const gen = (extra: object) => call("POST", "/v1/stories/generate", user.token, { profileIds: [hero.id], format: "quick_story", ...extra });
+
+    assert.equal((await gen({ lengthMinutes: 5 })).status, 400);
+    assert.equal((await gen({ world: "moon" })).status, 400);
+    assert.equal((await gen({ topic: "x".repeat(301) })).status, 400);
+    assert.equal((await call("POST", "/v1/stories/generate", user.token, { profileIds: [hero.id, hero.id], format: "quick_story" })).status, 400);
+    assert.equal((await call("POST", "/v1/stories/generate", user.token, { profileIds: [hero.id, hero.id, hero.id, hero.id], format: "quick_story" })).status, 400);
+  });
+
+  test("lengths map to word counts and reading time", () => {
+    assert.deepEqual([4, 7, 12].map((m) => wordsForMinutes(m as 4 | 7 | 12)), [450, 780, 1200]);
+    assert.equal(readingMinutes("слово ".repeat(550)), 5);
+    assert.equal(readingMinutes("слово"), 1);
+  });
+});
+
+describe("library: favorites and reading progress", () => {
+  test("favorite and progress can be updated and filtered", async () => {
+    resetBehaviour();
+    const user = await newUser("family");
+    const a = (await call("POST", "/v1/stories/generate", user.token, inlineBody())).json.storyId;
+    const b = (await call("POST", "/v1/stories/generate", user.token, inlineBody())).json.storyId;
+
+    const patched = await call("PATCH", `/v1/stories/${a}`, user.token, { favorite: true, readProgress: 0.62 });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json.favorite, true);
+    assert.equal(patched.json.readProgress, 0.62);
+
+    const favorites = (await call("GET", "/v1/stories?favorite=true", user.token)).json.stories;
+    assert.deepEqual(favorites.map((s: any) => s.id), [a]);
+    assert.deepEqual((await call("GET", "/v1/stories?favorite=false", user.token)).json.stories.map((s: any) => s.id), [b]);
+
+    assert.equal((await call("PATCH", `/v1/stories/${a}`, user.token, { readProgress: 1.5 })).status, 400);
+    assert.equal((await call("PATCH", `/v1/stories/${a}`, user.token, { favorite: "yes" })).status, 400);
+    assert.equal((await call("PATCH", `/v1/stories/${a}`, user.token, {})).status, 400);
+    assert.equal((await call("GET", "/v1/stories?favorite=maybe", user.token)).status, 400);
+
+    const stranger = await newUser();
+    assert.equal((await call("PATCH", `/v1/stories/${a}`, stranger.token, { favorite: false })).status, 404);
+    assert.equal((await call("PATCH", "/v1/stories/not-a-uuid", user.token, { favorite: false })).status, 404);
   });
 });

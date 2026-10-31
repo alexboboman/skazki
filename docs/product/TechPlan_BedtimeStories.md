@@ -132,7 +132,7 @@ user_attribution (user_id, appsflyer_id, anonymous_id, att_status, install_sourc
 user_consents (user_id, analytics_allowed, personalized_marketing_allowed, updated_at)
 
 -- Профили детей
-child_profiles (id, user_id, name, age, gender, interests[], worlds[], favorite_character, language, created_at)
+child_profiles (id, user_id, name, age, gender, appearance jsonb, interests[], worlds[], favorite_character, language, created_at)
 
 -- Подписки и entitlement-правила
 subscriptions (id, user_id, product_id, tier, status, original_transaction_id, expires_at, grace_period_expires_at, created_at, updated_at)
@@ -141,7 +141,10 @@ usage_counters (id, user_id, feature_key, period_start, period_end, count, limit
 feature_flags (key, enabled, rollout_percentage, config_json, updated_at)
 
 -- Истории
-stories (id, user_id, child_profile_id, format, title, total_parts, status, created_at, updated_at)
+stories (id, user_id, child_profile_id, format, title, world, moral, closing, reading_minutes, is_favorite, read_progress, total_parts, status, created_at, updated_at)
+
+-- Герои истории (одна сказка может быть про нескольких детей)
+story_heroes (story_id, child_profile_id, position)
 
 -- Части истории
 story_parts (id, story_id, part_number, text_content, unlocked_at, read_at, created_at)
@@ -343,6 +346,7 @@ Claude должен возвращать структурированные ма
 | ATT opt-out снижает точность paid UA | SKAdNetwork, агрегированные cohorts, server-side purchase events |
 | COPPA/GDPR-K конфликтует с аналитикой | Не отправлять PII/child text, consent controls, privacy review до beta |
 | Видео и premium voices повышают стоимость | Отдельные usage limits, async jobs, add-on pricing, cost monitoring |
+| Гостевые аккаунты: каждый вызов `/auth/anonymous` даёт новый 7-дневный триал | Rate limiting по IP, App Attest / DeviceCheck перед запуском, привязка триала к Apple ID после входа |
 | Feature flags ломают paywall/entitlements | Server-side source of truth, audit log, rollback config |
 
 ---

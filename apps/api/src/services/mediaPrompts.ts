@@ -1,6 +1,10 @@
 export interface ParsedStory {
-  /** Story text with all media markers removed. */
+  /** Leading `# Heading` of the raw text, without the hashes. */
+  title?: string;
+  /** Body paragraphs with every marker removed; the heading is not part of it. */
   text: string;
+  moral?: string;
+  closing?: string;
   images: ImageCue[];
   /** Stored as metadata only: the worker ignores them until the matching feature flag exists. */
   audioCues: string[];
@@ -9,14 +13,14 @@ export interface ParsedStory {
 
 export interface ImageCue {
   prompt: string;
-  /** Number of the paragraph in the clean text this image follows (1-based). */
+  /** Number of the body paragraph this image follows (1-based, the heading does not count). */
   afterParagraph: number;
 }
 
-const MARKER = /\[(IMAGE|ILLUSTRATION|AUDIO_CUE|VIDEO_CUE):\s*([^\]]*?)\s*\]/gi;
+const MARKER = /\[(IMAGE|ILLUSTRATION|AUDIO_CUE|VIDEO_CUE|MORAL|CLOSING):\s*([^\]]*?)\s*\]/gi;
 
 /**
- * Splits the raw Claude output into clean story text and media cues.
+ * Splits the raw Claude output into title, body text, moral, closing line and media cues.
  * `[ILLUSTRATION: ...]` is accepted as a legacy alias of `[IMAGE: ...]`.
  */
 export function parseMediaMarkers(raw: string): ParsedStory {
@@ -24,6 +28,9 @@ export function parseMediaMarkers(raw: string): ParsedStory {
   const audioCues: string[] = [];
   const videoCues: string[] = [];
   const paragraphs: string[] = [];
+  let title: string | undefined;
+  let moral: string | undefined;
+  let closing: string | undefined;
 
   for (const block of raw.split(/\n{2,}/)) {
     const cues: Array<{ kind: string; value: string }> = [];
@@ -33,7 +40,9 @@ export function parseMediaMarkers(raw: string): ParsedStory {
     });
     const clean = stripped.replace(/[ \t]+\n/g, "\n").trim();
 
-    if (clean) {
+    if (clean && title === undefined && paragraphs.length === 0 && /^#+\s/.test(clean)) {
+      title = clean.replace(/^#+\s*/, "").trim();
+    } else if (clean) {
       paragraphs.push(clean);
     }
 
@@ -42,11 +51,15 @@ export function parseMediaMarkers(raw: string): ParsedStory {
         audioCues.push(cue.value);
       } else if (cue.kind === "VIDEO_CUE") {
         videoCues.push(cue.value);
+      } else if (cue.kind === "MORAL") {
+        moral ||= cue.value || undefined;
+      } else if (cue.kind === "CLOSING") {
+        closing ||= cue.value || undefined;
       } else if (cue.value) {
         images.push({ prompt: cue.value, afterParagraph: Math.max(paragraphs.length, 1) });
       }
     }
   }
 
-  return { text: paragraphs.join("\n\n"), images, audioCues, videoCues };
+  return { title, text: paragraphs.join("\n\n"), moral, closing, images, audioCues, videoCues };
 }

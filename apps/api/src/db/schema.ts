@@ -1,4 +1,5 @@
-import { index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import type { Appearance } from "../../../../packages/shared/src/index.js";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -58,6 +59,7 @@ export const childProfiles = pgTable(
     name: text("name").notNull(),
     age: integer("age").notNull(),
     gender: text("gender"),
+    appearance: jsonb("appearance").$type<Appearance>(),
     interests: text("interests").array().notNull().default([]),
     worlds: text("worlds").array().notNull().default([]),
     favoriteCharacter: text("favorite_character"),
@@ -78,12 +80,33 @@ export const stories = pgTable(
     childProfileId: uuid("child_profile_id").references(() => childProfiles.id, { onDelete: "set null" }),
     format: text("format").notNull(),
     title: text("title"),
+    world: text("world"),
+    moral: text("moral"),
+    closing: text("closing"),
+    readingMinutes: integer("reading_minutes").notNull().default(5),
+    isFavorite: boolean("is_favorite").notNull().default(false),
+    readProgress: real("read_progress").notNull().default(0),
     totalParts: integer("total_parts").notNull().default(1),
     status: text("status").notNull().default("ready"),
     createdAt: createdAt(),
     updatedAt: updatedAt()
   },
   (table) => [index("stories_user_id_created_at_idx").on(table.userId, table.createdAt)]
+);
+
+/** All children who are heroes of a story, so it shows up in each of their libraries. */
+export const storyHeroes = pgTable(
+  "story_heroes",
+  {
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    childProfileId: uuid("child_profile_id")
+      .notNull()
+      .references(() => childProfiles.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0)
+  },
+  (table) => [primaryKey({ columns: [table.storyId, table.childProfileId] })]
 );
 
 export const storyParts = pgTable(

@@ -1,4 +1,16 @@
-import type { ChildProfileInput, GenerateStoryBody } from "../../../packages/shared/src/index.js";
+import {
+  WORLD_IDS,
+  type Appearance,
+  type ChildProfileInput,
+  type Gender,
+  type GenerateStoryBody,
+  type LengthMinutes,
+  type WorldId
+} from "../../../packages/shared/src/index.js";
+import { HAIR_COUNT, OUTFIT_COUNT, SKIN_COUNT } from "./services/catalog.js";
+
+export const MAX_HEROES = 3;
+const MAX_TOPIC_LENGTH = 300;
 
 export type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -23,12 +35,18 @@ export function validateChildProfileInput(body: unknown): Validated<ChildProfile
     return { ok: false, message: "interests must be an array of strings." };
   }
 
-  if (!isStringArray(body.worlds)) {
-    return { ok: false, message: "worlds must be an array of strings." };
+  if (!Array.isArray(body.worlds) || !body.worlds.every(isWorldId)) {
+    return { ok: false, message: `worlds must be an array of: ${WORLD_IDS.join(", ")}.` };
   }
 
-  if (body.gender !== undefined && !isNonEmptyString(body.gender)) {
-    return { ok: false, message: "gender must be a non-empty string when provided." };
+  if (body.gender !== undefined && body.gender !== null && body.gender !== "boy" && body.gender !== "girl" && body.gender !== "none") {
+    return { ok: false, message: "gender must be boy, girl or none." };
+  }
+
+  const appearance = validateAppearance(body.appearance);
+
+  if (!appearance.ok) {
+    return appearance;
   }
 
   return {
@@ -36,13 +54,39 @@ export function validateChildProfileInput(body: unknown): Validated<ChildProfile
     value: {
       name: body.name.trim(),
       age: body.age,
-      gender: body.gender,
+      gender: body.gender === "boy" || body.gender === "girl" ? body.gender : undefined,
+      appearance: appearance.value,
       interests: body.interests,
       worlds: body.worlds,
       favoriteCharacter: isNonEmptyString(body.favoriteCharacter) ? body.favoriteCharacter : undefined,
       language: body.language
     }
   };
+}
+
+export function validateAppearance(value: unknown): Validated<Appearance | undefined> {
+  if (value === undefined || value === null) {
+    return { ok: true, value: undefined };
+  }
+
+  if (!isRecord(value)) {
+    return { ok: false, message: "appearance must be an object." };
+  }
+
+  const inRange = (v: unknown, count: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < count;
+
+  if (!inRange(value.skin, SKIN_COUNT) || !inRange(value.hair, HAIR_COUNT) || !inRange(value.outfit, OUTFIT_COUNT)) {
+    return {
+      ok: false,
+      message: `appearance.skin must be 0-${SKIN_COUNT - 1}, hair 0-${HAIR_COUNT - 1} and outfit 0-${OUTFIT_COUNT - 1}.`
+    };
+  }
+
+  if (value.hairStyle !== "short" && value.hairStyle !== "long") {
+    return { ok: false, message: "appearance.hairStyle must be short or long." };
+  }
+
+  return { ok: true, value: { skin: value.skin, hair: value.hair, hairStyle: value.hairStyle, outfit: value.outfit } };
 }
 
 export function validateGenerateStoryBody(body: unknown): Validated<GenerateStoryBody> {
@@ -58,9 +102,24 @@ export function validateGenerateStoryBody(body: unknown): Validated<GenerateStor
     return { ok: false, message: "wordCount must be a number between 200 and 1200." };
   }
 
+  if (body.lengthMinutes !== undefined && body.lengthMinutes !== 4 && body.lengthMinutes !== 7 && body.lengthMinutes !== 12) {
+    return { ok: false, message: "lengthMinutes must be 4, 7 or 12." };
+  }
+
+  if (body.world !== undefined && !isWorldId(body.world)) {
+    return { ok: false, message: `world must be one of: ${WORLD_IDS.join(", ")}.` };
+  }
+
+  if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.length > MAX_TOPIC_LENGTH)) {
+    return { ok: false, message: `topic must be a string of at most ${MAX_TOPIC_LENGTH} characters.` };
+  }
+
   const common = {
     format: body.format,
     wordCount: body.wordCount,
+    lengthMinutes: body.lengthMinutes as LengthMinutes | undefined,
+    world: body.world as WorldId | undefined,
+    topic: typeof body.topic === "string" && body.topic.trim() ? body.topic.trim() : undefined,
     mediaOptions: isRecord(body.mediaOptions)
       ? {
           requestedTypes: Array.isArray(body.mediaOptions.requestedTypes)
@@ -71,18 +130,20 @@ export function validateGenerateStoryBody(body: unknown): Validated<GenerateStor
       : undefined
   };
 
-  if (body.profileId !== undefined) {
-    if (!isNonEmptyString(body.profileId)) {
-      return { ok: false, message: "profileId must be a non-empty string." };
+  if (body.profileIds !== undefined) {
+    const ids = body.profileIds;
+
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_HEROES || !ids.every(isNonEmptyString) || new Set(ids).size !== ids.length) {
+      return { ok: false, message: `profileIds must be 1 to ${MAX_HEROES} distinct profile ids.` };
     }
 
-    return { ok: true, value: { ...common, profileId: body.profileId } };
+    return { ok: true, value: { ...common, profileIds: ids } };
   }
 
   const childProfile = body.childProfile;
 
   if (!isRecord(childProfile)) {
-    return { ok: false, message: "profileId or childProfile is required." };
+    return { ok: false, message: "profileIds or childProfile is required." };
   }
 
   if (!isNonEmptyString(childProfile.name)) {
@@ -105,6 +166,12 @@ export function validateGenerateStoryBody(body: unknown): Validated<GenerateStor
     return { ok: false, message: "childProfile.world must be a non-empty string." };
   }
 
+  const appearance = validateAppearance(childProfile.appearance);
+
+  if (!appearance.ok) {
+    return appearance;
+  }
+
   return {
     ok: true,
     value: {
@@ -115,7 +182,9 @@ export function validateGenerateStoryBody(body: unknown): Validated<GenerateStor
         language: childProfile.language,
         interests: childProfile.interests,
         world: childProfile.world,
-        favoriteCharacter: isNonEmptyString(childProfile.favoriteCharacter) ? childProfile.favoriteCharacter : undefined
+        favoriteCharacter: isNonEmptyString(childProfile.favoriteCharacter) ? childProfile.favoriteCharacter : undefined,
+        gender: childProfile.gender === "boy" || childProfile.gender === "girl" ? (childProfile.gender as Gender) : undefined,
+        appearance: appearance.value
       }
     }
   };
@@ -127,6 +196,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isWorldId(value: unknown): value is WorldId {
+  return typeof value === "string" && (WORLD_IDS as readonly string[]).includes(value);
 }
 
 function isStringArray(value: unknown): value is string[] {

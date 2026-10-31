@@ -38,7 +38,7 @@ export class AnthropicTextGenerator implements TextGenerator {
 
   async generateStory(request: GenerateStoryRequest): Promise<TextResult> {
     const wordCount = request.wordCount ?? 700;
-    const system = buildSystemPrompt(request.childProfile, wordCount);
+    const system = buildSystemPrompt(request, wordCount);
     const userPrompt = buildUserPrompt(request);
 
     const res = await postJson(
@@ -84,20 +84,35 @@ export class AnthropicTextGenerator implements TextGenerator {
   }
 }
 
-function buildSystemPrompt(childProfile: ChildProfile, wordCount: number): string {
-  const favoriteCharacter = childProfile.favoriteCharacter
-    ? `Любимый персонаж: ${childProfile.favoriteCharacter}.`
-    : "Любимый персонаж не задан.";
+function buildSystemPrompt(request: GenerateStoryRequest, wordCount: number): string {
+  const heroes = [request.childProfile, ...(request.companions ?? [])];
+  // The story must suit the youngest listener.
+  const age = Math.min(...heroes.map((hero) => hero.age));
 
-  return `Ты — опытный детский писатель. Пиши сказки для детей возраста ${childProfile.age} лет.
-Язык: ${childProfile.language}. Стиль: мягкий, добрый, с моральным выводом в конце.
-Имя главного героя: ${childProfile.name}.
-Мир: ${childProfile.world}.
-Интересы ребёнка: ${childProfile.interests.join(", ")}.
-${favoriteCharacter}
+  return `Ты — опытный детский писатель. Пиши сказки для детей возраста ${age} лет.
+Язык: ${request.childProfile.language}. Стиль: мягкий, добрый, успокаивающий — это сказка на ночь.
+${heroes.length > 1 ? "Главные герои — дети, все они действуют в сказке вместе:" : "Главный герой — ребёнок:"}
+${heroes.map(describeHeroRu).join("\n")}
+Мир: ${request.childProfile.world}.
+${request.topic ? `Тема сказки: ${request.topic}.` : "Тема — на твой выбор, добрая и волшебная."}
 Длина: около ${wordCount} слов.
 Не используй страшных, тёмных или жестоких элементов.
-Придумай название сказки.`;
+Придумай название сказки и поставь его первой строкой в виде "# Название".
+Мораль и финальное пожелание не пиши в тексте сказки, а выдай отдельными маркерами в самом конце, каждый с новой строки:
+[MORAL: одно-два предложения о том, чему учит сказка]
+[CLOSING: короткое пожелание спокойной ночи]`;
+}
+
+function describeHeroRu(hero: ChildProfile): string {
+  const gender = hero.gender === "boy" ? "мальчик" : hero.gender === "girl" ? "девочка" : undefined;
+  const parts = [
+    `- ${hero.name}`,
+    `${hero.age} ${hero.age === 1 ? "год" : hero.age < 5 ? "года" : "лет"}`,
+    ...(gender ? [`${gender}, согласуй местоимения`] : []),
+    ...(hero.interests.length ? [`любит: ${hero.interests.join(", ")}`] : []),
+    ...(hero.favoriteCharacter ? [`любимый персонаж: ${hero.favoriteCharacter}`] : [])
+  ];
+  return parts.join(", ");
 }
 
 function buildUserPrompt(request: GenerateStoryRequest): string {
@@ -107,7 +122,7 @@ function buildUserPrompt(request: GenerateStoryRequest): string {
   if (requested.includes("image")) {
     notes.push(
       `Расставь ровно ${IMAGES_PER_FORMAT[request.format]} маркера иллюстраций, каждый отдельной строкой после абзаца, который он иллюстрирует: [IMAGE: short scene description in English].`,
-      "В каждом маркере одинаково описывай внешность главных героев (возраст, волосы, одежда, цвета), чтобы иллюстрации выглядели как одна книга.",
+      "В каждом маркере описывай только сцену и действие, внешность героев уже известна художнику и добавляется автоматически.",
       "Не вставляй маркеры в заголовок и в последний абзац."
     );
   }

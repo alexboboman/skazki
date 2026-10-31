@@ -6,6 +6,7 @@ import type {
   PipelineStep,
   PipelineStepName
 } from "../../../../packages/shared/src/index.js";
+import { describeHero, readingMinutes } from "./catalog.js";
 import type { ImageGenerator } from "./imageGenerator.js";
 import type { MediaStore } from "./mediaStore.js";
 import { parseMediaMarkers, type ImageCue } from "./mediaPrompts.js";
@@ -46,7 +47,8 @@ export async function runStoryPipeline(
 
   if (wantsImages && parsed.images.length > 0) {
     const quality = request.mediaOptions?.imageQuality ?? "standard";
-    const generated = await generateImages(parsed.images, request.childProfile, quality, deps, steps);
+    const heroes = [request.childProfile, ...(request.companions ?? [])];
+    const generated = await generateImages(parsed.images, request.childProfile, heroes, quality, deps, steps);
     media = generated.media;
     imageCostUsd = generated.costUsd;
   } else {
@@ -56,7 +58,13 @@ export async function runStoryPipeline(
   const requestedTypes = request.mediaOptions?.requestedTypes ?? [];
 
   return {
-    story: { title: textResult.title, text: parsed.text },
+    story: {
+      title: parsed.title ?? textResult.title,
+      text: parsed.text,
+      moral: parsed.moral,
+      closing: parsed.closing,
+      readingMinutes: readingMinutes([parsed.text, parsed.moral, parsed.closing].filter(Boolean).join(" "))
+    },
     media,
     usage: {
       ...textResult.usage,
@@ -128,6 +136,7 @@ async function generateSafeText(
 async function generateImages(
   cues: ImageCue[],
   profile: ChildProfile,
+  heroes: ChildProfile[],
   quality: "standard" | "hd",
   deps: StoryPipelineDeps,
   steps: PipelineStep[]
@@ -140,7 +149,7 @@ async function generateImages(
   // Sequential on purpose: keeps provider rate limits and cost predictable in the prototype.
   for (const cue of cues) {
     try {
-      const prompt = buildIllustrationPrompt(cue.prompt, profile);
+      const prompt = buildIllustrationPrompt(cue.prompt, profile, heroes);
       const image = await deps.imageGenerator.generateImage({ prompt, quality });
       const stored = await deps.mediaStore.save(image.bytes, image.contentType);
 
@@ -171,8 +180,10 @@ async function generateImages(
   return { media, costUsd };
 }
 
-function buildIllustrationPrompt(scene: string, profile: ChildProfile): string {
+/** The look of every hero is fixed here, not left to the model, so they stay the same in all pictures. */
+function buildIllustrationPrompt(scene: string, profile: ChildProfile, heroes: ChildProfile[]): string {
   return `Children's book illustration, soft watercolor style, warm colors.
+Characters: ${heroes.map(describeHero).join("; ")}.
 Scene: ${scene}.
 World: ${profile.world}.
 Age-appropriate, gentle, no scary elements, no text or letters in the image.
