@@ -10,7 +10,15 @@ import type {
 import type { Db } from "../db/client.js";
 import { childProfiles, subscriptions, usageCounters, users } from "../db/schema.js";
 
-export const TRIAL_DAYS = 7;
+/** Length of the Family trial for new accounts. `TRIAL_DAYS=0` (dev) makes new accounts start on Free to try the limits. */
+export const TRIAL_DAYS = trialDaysFromEnv(process.env);
+
+export function trialDaysFromEnv(env: NodeJS.ProcessEnv): number {
+  const raw = env.TRIAL_DAYS?.trim();
+  const value = Number(raw);
+  // An empty value (as in .env.example) means "not set", not zero days.
+  return env.NODE_ENV !== "production" && raw && Number.isFinite(value) && value >= 0 ? value : 7;
+}
 
 interface Quota {
   limit: number;

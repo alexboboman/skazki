@@ -92,7 +92,7 @@ Put your real key in `.env` or export it in the shell.
 ANTHROPIC_API_KEY=... npm run dev:api
 ```
 
-No keys yet? `TEXT_PROVIDER=mock IMAGE_PROVIDER=mock` serves a canned story and placeholder images, so the app can be tried end to end (ignored in production). The iOS app is covered in `ios/README.md`.
+No keys yet? `TEXT_PROVIDER=mock IMAGE_PROVIDER=mock` serves a canned story and placeholder images, so the app can be tried end to end (ignored in production). Dev-only `TRIAL_DAYS=0` starts new accounts on Free (instead of the 7-day Family trial) to try the limits and the paywall. The iOS app is covered in `ios/README.md`.
 
 Images: set `OPENAI_API_KEY` to use `gpt-image-1`, or `IMAGE_PROVIDER=mock` for offline placeholders. Without a key the API falls back to the mock provider (visible as `provider: "mock"` in `steps`).
 

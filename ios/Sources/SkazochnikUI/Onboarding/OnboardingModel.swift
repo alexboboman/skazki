@@ -126,20 +126,28 @@ public final class OnboardingModel: ObservableObject {
         defer { isSaving = false }
 
         do {
-            try await client.ensureSignedIn()
-            let profile: ChildProfile
-            if let editing {
-                profile = try await client.updateProfile(id: editing.id, draft.input)
-            } else {
-                profile = try await client.createProfile(draft.input)
+            // After a reinstall the Keychain still holds the old token. When the server does not know that
+            // account any more, drop it and start with a fresh guest instead of getting stuck.
+            do {
+                onFinished(try await save())
+            } catch APIError.unauthorized {
+                client.signOut()
+                onFinished(try await save())
             }
-            onFinished(profile)
         } catch let APIError.paywall(info) {
             paywall = info
             errorMessage = "На вашем тарифе можно создать не больше \(info.limit ?? 1) профилей. Откройте подписку, чтобы добавить ещё."
         } catch {
             errorMessage = Self.message(for: error)
         }
+    }
+
+    private func save() async throws -> ChildProfile {
+        try await client.ensureSignedIn()
+        if let editing {
+            return try await client.updateProfile(id: editing.id, draft.input)
+        }
+        return try await client.createProfile(draft.input)
     }
 
     static func message(for error: Error) -> String {

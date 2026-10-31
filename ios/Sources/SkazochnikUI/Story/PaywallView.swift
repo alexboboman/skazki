@@ -72,6 +72,13 @@ struct PaywallView: View {
     
                 Button(action: onTrial) { Label("Попробовать 7 дней бесплатно", systemImage: "sparkles") }
                     .buttonStyle(.goldPill)
+                    // Content fades out above the pinned button instead of being cut by it.
+                    .background(alignment: .top) {
+                        LinearGradient(colors: [Theme.bg1.opacity(0), Theme.bg1], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 28)
+                            .offset(y: -28)
+                            .allowsHitTesting(false)
+                    }
                 Button("Продолжить с Free", action: onFree).buttonStyle(.ghostPill).padding(.top, 4)
                 HStack(spacing: 18) {
                     ForEach(["Восстановить", "Условия", "Конфиденциальность"], id: \.self) { Text($0).captionStyle(11.5) }
@@ -86,7 +93,7 @@ struct PaywallView: View {
 
     private var subtitle: String {
         if let reason, reason.code == .limitReached {
-            return "Бесплатный лимит на сегодня исчерпан. С подпиской — новая сказка каждый вечер."
+            return "Бесплатный лимит исчерпан. С подпиской сказки без ограничений."
         }
         return "7 дней бесплатно. Затем — по цене одной книжки в месяц."
     }

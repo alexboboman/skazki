@@ -14,7 +14,7 @@ const { describeHero, wordsForMinutes, readingMinutes } = await import("../src/s
 const { createDb } = await import("../src/db/client.js");
 const { MockImageGenerator } = await import("../src/services/imageGenerator.js");
 const { LocalMediaStore } = await import("../src/services/mediaStore.js");
-const { periodWindow } = await import("../src/services/entitlements.js");
+const { periodWindow, trialDaysFromEnv } = await import("../src/services/entitlements.js");
 const { parseVerdict } = await import("../src/services/safetyChecker.js");
 const { parseMediaMarkers } = await import("../src/services/mediaPrompts.js");
 
@@ -225,6 +225,17 @@ describe("entitlements", () => {
     assert.equal(json.limits.imageQuality, "standard");
     const quick = json.quotas.find((q: any) => q.feature === "quick_story");
     assert.deepEqual({ limit: quick.limit, used: quick.used, period: quick.period }, { limit: 3, used: 1, period: "week" });
+  });
+
+  test("TRIAL_DAYS: default 7, empty means unset, 0 starts on Free, ignored in production", () => {
+    assert.equal(trialDaysFromEnv({}), 7);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "" }), 7);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "  " }), 7);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "0" }), 0);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "3" }), 3);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "abc" }), 7);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "-1" }), 7);
+    assert.equal(trialDaysFromEnv({ TRIAL_DAYS: "0", NODE_ENV: "production" }), 7);
   });
 
   test("period windows are UTC day, Monday-based week and calendar month", () => {

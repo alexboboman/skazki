@@ -155,6 +155,59 @@ extension StubbedNetwork {
             #expect(model.step == .name)
         }
 
+        private func makeClient(store: MemorySessionStore) -> APIClient {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [RouteStub.self]
+            return APIClient(baseURL: URL(string: "http://route.test")!, store: store, session: URLSession(configuration: configuration))
+        }
+
+        @Test func aStaleTokenAfterAReinstallIsReplacedWithAFreshGuest() async throws {
+            let store = MemorySessionStore(token: "stale")
+            var profileCalls = 0
+            RouteStub.routes["POST /v1/profiles"] = { request in
+                profileCalls += 1
+                if request.value(forHTTPHeaderField: "authorization") == "Bearer stale" {
+                    return .success((401, Data(#"{"error":{"code":"unauthorized","message":"m"}}"#.utf8)))
+                }
+                return .success((201, self.profileJSON(id: "new", name: "Мия", age: 5)))
+            }
+            RouteStub.routes["POST /v1/auth/anonymous"] = { _ in
+                .success((201, Data(#"{"token":"fresh","user":{"id":"u","anonymous":true}}"#.utf8)))
+            }
+
+            var saved: ChildProfile?
+            let model = OnboardingModel(client: makeClient(store: store), onFinished: { saved = $0 })
+            model.draft.name = "Мия"
+            await model.finish()
+
+            #expect(saved?.id == "new")
+            #expect(profileCalls == 2)
+            #expect(store.loadToken() == "fresh")
+            #expect(model.errorMessage == nil)
+        }
+
+        @Test func aFreePlanLimitOnAddingAChildShowsAMessage() async {
+            RouteStub.routes["POST /v1/profiles"] = { _ in
+                .success((402, Data(#"{"error":{"code":"limit_reached","message":"m","feature":"profiles","tier":"free","limit":1}}"#.utf8)))
+            }
+            var finished = false
+            let model = OnboardingModel(client: makeClient(store: MemorySessionStore(token: "t")), onFinished: { _ in finished = true })
+            model.draft.name = "Мия"
+            await model.finish()
+
+            #expect(!finished)
+            #expect(model.paywall?.feature == "profiles")
+            #expect(model.errorMessage?.contains("1") == true)
+        }
+
+        @Test func limitMessageNamesTheResetDate() {
+            let date = ISO8601DateFormatter().date(from:  "2026-11-02T00:00:00Z")
+            let note = FailureView.resetNote(date)
+            #expect(note.hasPrefix("Новая сказка будет доступна "))
+            #expect(note.contains("ноября"))
+            #expect(FailureView.resetNote(nil) == "Новая сказка будет доступна позже. ")
+        }
+
         @Test func aFailedSaveShowsAMessageAndDoesNotFinish() async throws {
             let existing = try Sample.decoder.decode(ChildProfile.self, from: profileJSON(id: "k1", name: "Аня", age: 5))
             var finished = false

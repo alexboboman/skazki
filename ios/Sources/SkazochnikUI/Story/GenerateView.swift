@@ -92,7 +92,7 @@ struct GenerateView: View {
 }
 
 /// Error states of generation: paywall, rejected draft, no network, server error.
-private struct FailureView: View {
+struct FailureView: View {
     let failure: StoryGenerationModel.Failure
     let retry: () -> Void
     let onPaywall: (PaywallInfo) -> Void
@@ -120,9 +120,18 @@ private struct FailureView: View {
         .padding(.horizontal, 26)
     }
 
+    /// "Новая сказка будет доступна 2 ноября. " when the server told us when the counter resets.
+    static func resetNote(_ date: Date?) -> String {
+        guard let date else { return "Новая сказка будет доступна позже. " }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "d MMMM"
+        return "Новая сказка будет доступна \(formatter.string(from: date)). "
+    }
+
     private var title: String {
         switch failure {
-        case .paywall(let info): info.code == .upgradeRequired ? "Это есть в подписке" : "Сказки на сегодня закончились"
+        case .paywall(let info): info.code == .upgradeRequired ? "Это есть в подписке" : "Бесплатные сказки закончились"
         case .rejected: "Сказка не получилась"
         case .offline: "Нет связи"
         case .other: "Что-то пошло не так"
@@ -134,7 +143,7 @@ private struct FailureView: View {
         case .paywall(let info):
             info.code == .upgradeRequired
                 ? "Сериалы на несколько вечеров доступны в подписке."
-                : "Бесплатный лимит исчерпан. Новая сказка будет доступна позже, или откройте безлимит."
+                : "Бесплатный лимит исчерпан. \(Self.resetNote(info.resetsAt))Или откройте безлимит."
         case .rejected: "Мы проверяем каждую сказку и не показываем ту, что не подходит ребёнку. Попробуйте ещё раз."
         case .offline: "Проверьте интернет и попробуйте ещё раз."
         case .other(let text): text

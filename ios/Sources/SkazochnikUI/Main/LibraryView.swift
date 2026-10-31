@@ -37,6 +37,10 @@ struct LibraryView: View {
                         .foregroundStyle(Theme.text)
                         .tint(Theme.accent)
                         .focused($searchFocused)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        #endif
                         .padding(.horizontal, 15)
                         .padding(.vertical, 12)
                         .background(Theme.card, in: Capsule())
