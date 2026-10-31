@@ -97,7 +97,8 @@ No keys yet? `TEXT_PROVIDER=mock IMAGE_PROVIDER=mock` serves a canned story and 
 The server loads `.env` itself on start (`apps/api/src/loadEnv.ts`); variables already set in the environment win.
 
 Images: `IMAGE_PROVIDER` picks `phygital`, `openai` or `mock`. When it is empty the first provider with a key wins: `PHYGITAL_API_KEY`, then `OPENAI_API_KEY`, else the offline mock (visible as `provider: "mock"` in `steps`).
-- **Phygital+** (`dev.phygital.plus`) is an async task API: the generator creates a task (`POST /api/models/gemini-image`, `X-Api-Key`), polls `/api/tasks/{id}` and downloads the first output link. Standard quality uses `model_name=v3_1_lite`, HD uses `v3` (override with `PHYGITAL_MODEL_STANDARD/HD`). One image takes about 13 s and comes back as a ~1.9 MB PNG (no compression yet); the cost per image is not known yet, so `usage.estimatedCostUsd` counts it as 0.
+- **Phygital+** (`dev.phygital.plus`) is an async task API: the generator creates a task (`POST /api/models/gemini-image`, `X-Api-Key`), polls `/api/tasks/{id}` and downloads the first output link. Standard quality uses `model_name=v3_1_lite`, HD uses `v3` (override with `PHYGITAL_MODEL_STANDARD/HD`). One image takes about 13 s and comes back as a ~2 MB PNG; the cost per image is not known yet, so `usage.estimatedCostUsd` counts it as 0.
+- Phygital+ pictures are re-encoded as WebP (longest side at most 1280 px, quality 82) by `CompressingImageGenerator` before they are stored, so a picture weighs about 100-300 KB instead of 2 MB. SVG and WebP pass through; if encoding fails the original is kept.
 - The illustrations of one story are generated in parallel and keep the order of their `[IMAGE: …]` markers; a failed one is skipped and marks the `generate_images` step as failed.
 
 Healthcheck:

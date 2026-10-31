@@ -11,6 +11,8 @@ delete process.env.NODE_ENV;
 const { createApp } = await import("../src/app.js");
 const { PhygitalImageGenerator } = await import("../src/services/phygitalImageGenerator.js");
 const { createImageGenerator } = await import("../src/services/imageGenerator.js");
+const { CompressingImageGenerator } = await import("../src/services/imageCompression.js");
+const sharp = (await import("sharp")).default;
 const { runStoryPipeline } = await import("../src/services/storyPipeline.js");
 const { createAuthService } = await import("../src/services/auth.js");
 const { describeHero, wordsForMinutes, readingMinutes } = await import("../src/services/catalog.js");
@@ -779,5 +781,50 @@ describe("pipeline images run side by side", () => {
     const step = result.steps.find((s) => s.name === "generate_images");
     assert.equal(step?.status, "failed");
     assert.match(step?.error ?? "", /provider hiccup/);
+  });
+});
+
+describe("image compression", () => {
+  const source = (bytes: Buffer, contentType: string) => ({
+    provider: "fake",
+    async generateImage() {
+      return { bytes, contentType, estimatedCostUsd: 0.25 };
+    }
+  });
+
+  test("a big PNG becomes a smaller WebP that fits the size limit", async () => {
+    const png = await sharp({ create: { width: 2000, height: 1500, channels: 3, background: { r: 200, g: 120, b: 80 } } })
+      .composite([{ input: Buffer.alloc(2000 * 1500 * 3, 7), raw: { width: 2000, height: 1500, channels: 3 }, blend: "over" }])
+      .png()
+      .toBuffer();
+    const generator = new CompressingImageGenerator(source(png, "image/png"));
+
+    const image = await generator.generateImage({ prompt: "x", quality: "standard" });
+    const meta = await sharp(image.bytes).metadata();
+
+    assert.equal(image.contentType, "image/webp");
+    assert.equal(meta.format, "webp");
+    assert.equal(meta.width, 1280);
+    assert.equal(meta.height, 960);
+    assert.ok(image.bytes.length < png.length);
+    assert.equal(image.estimatedCostUsd, 0.25);
+    assert.equal(generator.provider, "fake");
+  });
+
+  test("small pictures are not enlarged", async () => {
+    const png = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#456" } }).png().toBuffer();
+    const image = await new CompressingImageGenerator(source(png, "image/png")).generateImage({ prompt: "x", quality: "standard" });
+    assert.equal((await sharp(image.bytes).metadata()).width, 300);
+  });
+
+  test("SVG and WebP pass through, and broken bytes keep the original", async () => {
+    const svg = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>");
+    const asIs = await new CompressingImageGenerator(source(svg, "image/svg+xml")).generateImage({ prompt: "x", quality: "standard" });
+    assert.equal(asIs.bytes, svg);
+
+    const broken = Buffer.from("not an image");
+    const kept = await new CompressingImageGenerator(source(broken, "image/png")).generateImage({ prompt: "x", quality: "standard" });
+    assert.equal(kept.bytes, broken);
+    assert.equal(kept.contentType, "image/png");
   });
 });
