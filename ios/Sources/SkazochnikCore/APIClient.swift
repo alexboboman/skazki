@@ -13,6 +13,15 @@ public struct PaywallInfo: Equatable, Sendable {
     public var tier: Tier
     public var limit: Int?
     public var resetsAt: Date?
+
+    public init(code: PaywallCode, message: String, feature: String, tier: Tier, limit: Int? = nil, resetsAt: Date? = nil) {
+        self.code = code
+        self.message = message
+        self.feature = feature
+        self.tier = tier
+        self.limit = limit
+        self.resetsAt = resetsAt
+    }
 }
 
 public enum APIError: Error, Equatable, Sendable {
@@ -298,4 +307,29 @@ public struct APIClient: Sendable {
         }
         return decoder
     }()
+}
+
+// MARK: Subscriptions
+
+extension APIClient {
+    /// Hands the server the signed transactions StoreKit holds (after a purchase, on restore, on launch).
+    /// The server verifies Apple's signature and answers with the entitlements the account now has.
+    public func syncSubscription(transactions: [String]) async throws -> Entitlements {
+        struct Body: Encodable { var transactions: [String] }
+        return try await send("POST", "/v1/subscription/sync", body: Body(transactions: transactions))
+    }
+
+    /// The account id inside the stored token (`sub`). Purchases carry it as `appAccountToken`, so Apple's
+    /// server notifications can be matched to the account. Nil without a token.
+    public func currentUserID() -> String? {
+        guard let token = store.loadToken() else { return nil }
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var base64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let data = Data(base64Encoded: base64),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return payload["sub"] as? String
+    }
 }

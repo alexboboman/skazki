@@ -143,6 +143,11 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// A newer answer about the plan, e.g. right after a purchase.
+    func applyEntitlements(_ fresh: Entitlements) {
+        entitlements = fresh
+    }
+
     /// Wipes the local data of the lost account, the caller then restarts onboarding.
     public func startOver() {
         repository.forgetEverything()

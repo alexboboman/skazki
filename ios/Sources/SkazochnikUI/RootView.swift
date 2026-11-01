@@ -15,12 +15,15 @@ public struct RootView: View {
 
     private let client: APIClient
     private let cache: LibraryCache
+    @StateObject private var store: SubscriptionStore
     @AppStorage("onboardingFinished") private var onboardingFinished = false
     @State private var stage: Stage = .onboarding
 
-    public init(client: APIClient, cache: LibraryCache = FileLibraryCache()) {
+    /// `storefront` is the App Store; it is injected so tests and previews run without one.
+    public init(client: APIClient, cache: LibraryCache = FileLibraryCache(), storefront: Storefront? = StoreKitStorefront()) {
         self.client = client
         self.cache = cache
+        _store = StateObject(wrappedValue: SubscriptionStore(client: client, storefront: storefront))
     }
 
     public var body: some View {
@@ -35,6 +38,12 @@ public struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.35), value: stage)
+        .environmentObject(store)
+        .task {
+            // Renewals, purchases on another device and approved Ask to Buy reach the server from here.
+            store.startListening()
+            if onboardingFinished { await store.syncCurrent() }
+        }
     }
 
     @ViewBuilder private var flow: some View {
@@ -66,11 +75,10 @@ public struct RootView: View {
                 onUpsell: { stage = .paywall(profile, nil) }
             )
         case .paywall(let profile, let reason):
-            // Purchasing arrives with StoreKit; both buttons just continue for now.
             PaywallView(hero: HeroInfo(profile: profile), reason: reason) {
-                stage = .done(profile, trial: true)
-            } onFree: {
                 stage = .done(profile, trial: false)
+            } onFree: {
+                stage = .done(profile, trial: store.entitlements?.source == "trial")
             }
         case .done(let profile, let trial):
             DoneView(hero: HeroInfo(profile: profile), trial: trial) {

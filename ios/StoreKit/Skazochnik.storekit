@@ -1,0 +1,112 @@
+{
+  "identifier": "5D1E0C7A",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_askToBuyEnabled": false
+  },
+  "subscriptionGroups": [
+    {
+      "id": "21000001",
+      "localizations": [],
+      "name": "Сказочник",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "9.99",
+          "familyShareable": true,
+          "groupNumber": 1,
+          "internalID": "6740000001",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Family+ · месяц — сказки без ограничений",
+              "displayName": "Family+ · месяц",
+              "locale": "ru"
+            }
+          ],
+          "productID": "family_plus_monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Family+ monthly",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription",
+          "winbackOffers": []
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "69.99",
+          "familyShareable": true,
+          "groupNumber": 1,
+          "internalID": "6740000002",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Family+ · год — сказки без ограничений",
+              "displayName": "Family+ · год",
+              "locale": "ru"
+            }
+          ],
+          "productID": "family_plus_yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Family+ yearly",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription",
+          "winbackOffers": []
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "6.99",
+          "familyShareable": true,
+          "groupNumber": 2,
+          "internalID": "6740000003",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Family · месяц — сказки без ограничений",
+              "displayName": "Family · месяц",
+              "locale": "ru"
+            }
+          ],
+          "productID": "family_monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Family monthly",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription",
+          "winbackOffers": []
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "49.99",
+          "familyShareable": true,
+          "groupNumber": 2,
+          "internalID": "6740000004",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Family · год — сказки без ограничений",
+              "displayName": "Family · год",
+              "locale": "ru"
+            }
+          ],
+          "productID": "family_yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Family yearly",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription",
+          "winbackOffers": []
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

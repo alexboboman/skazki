@@ -13,7 +13,7 @@ The project now has a small API scaffold:
 - `docs/product` — PRD and technical architecture.
 - `docs/stories` — generated story samples.
 
-The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (Phygital+ `gemini-image`, OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Series of stories and premium narration (Family+) are built (see the Series and Premium narration sections). Video, the StoreKit integration, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (Phygital+ `gemini-image`, OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Series of stories and premium narration (Family+) are built (see the Series and Premium narration sections). Subscriptions (StoreKit 2 on the device, signed transactions and App Store Server Notifications on the server) are built (see the Subscriptions section). Video, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
 
 Data and auth notes:
 
@@ -21,9 +21,9 @@ Data and auth notes:
 - Guest accounts: the design lets a parent finish onboarding and read the first story before signing in, so the client calls `POST /v1/auth/anonymous` on first launch and keeps the returned token in the Keychain. A guest account gets the 7-day trial like any other. Later `POST /v1/auth/apple` sent **with the guest bearer token** links the Apple ID to that same account (profiles, stories and trial are kept); if that Apple ID already has an account, that account is returned instead and the guest data is not merged. Risk: every guest call starts a new trial, so before launch it needs rate limiting and App Attest / DeviceCheck.
 - Auth: `POST /v1/auth/apple` verifies an Apple identity token (RS256 via Apple JWKS, `iss`/`aud` checked against `APPLE_BUNDLE_ID`) and returns our own HS256 JWT (90 days, `JWT_SECRET`). The Apple flow is implemented but not yet tested against a real Apple token. For local work set `AUTH_DEV_LOGIN=1` to enable `POST /v1/auth/dev` (disabled when `NODE_ENV=production`).
 - Every `/v1/profiles` and `/v1/stories` route needs `Authorization: Bearer <token>` and only sees the caller's own data.
-- Entitlements: the tier comes from an active row in `subscriptions` (written by the future StoreKit / App Store Server Notifications integration), else a 7-day Family trial from first sign-in (`users.trial_ends_at`), else Free. The matrix from the PRD lives in `TIERS` in `apps/api/src/services/entitlements.ts` (profiles 1/3/5, Quick Story 3 per week on Free, Classic 1 per day on Free, arcs paid only, HD images paid only, "unlimited" = 100 per month fair use); it moves to remote config later. Quotas are counted in `usage_counters` (UTC day / Monday-based week / month), taken atomically before generation and given back if generation fails. `GET /v1/entitlements` returns the tier, limits and current usage for the client.
+- Entitlements: the tier comes from an active row in `subscriptions` (written by the StoreKit sync endpoint and App Store Server Notifications, see Subscriptions), else a 7-day Family trial from first sign-in (`users.trial_ends_at`), else Free. The matrix from the PRD lives in `TIERS` in `apps/api/src/services/entitlements.ts` (profiles 1/3/5, Quick Story 3 per week on Free, Classic 1 per day on Free, arcs paid only, HD images paid only, "unlimited" = 100 per month fair use); it moves to remote config later. Quotas are counted in `usage_counters` (UTC day / Monday-based week / month), taken atomically before generation and given back if generation fails. `GET /v1/entitlements` returns the tier, limits and current usage for the client.
 - Paywall contract: when a limit blocks an action the API answers **HTTP 402** with `{ error: { code: "limit_reached" | "upgrade_required", feature, tier, limit?, resetsAt? } }`; `feature` is `profiles`, `story_arc`, `classic_story` or `quick_story`. Reading existing stories is never blocked.
-- Dev only (`AUTH_DEV_LOGIN=1`): `PUT /v1/dev/subscription` with `{ "tier": "free" | "family" | "family_plus" }` switches the caller's tier and ends the trial, to test limits without StoreKit.
+- Dev only (`AUTH_DEV_LOGIN=1`): `PUT /v1/dev/subscription` with `{ "tier": "free" | "family" | "family_plus" }` switches the caller's tier and ends the trial, to test limits without StoreKit (it deletes the account's real subscriptions too).
 
 Pipeline notes:
 
@@ -153,6 +153,8 @@ Endpoints (all under `/v1`, all except `auth/*` and `media/*` need a bearer toke
 | POST | `/auth/refresh` | New token for a valid one; the app calls it on every launch, so a guest account only expires after 90 days without opening the app |
 | POST | `/auth/apple`, `/auth/dev` | Sign in / link Apple ID to the guest (send the guest token); dev login |
 | GET | `/entitlements` | Tier, limits and usage (for the paywall) |
+| POST | `/subscription/sync` | Body `{ "transactions": ["<signed JWS>", ...] }` from StoreKit 2; binds the verified subscriptions to the caller and answers with the entitlements (see Subscriptions) |
+| POST | `/webhooks/apple` | App Store Server Notifications v2 (`{ "signedPayload" }`), no bearer token: Apple's signature is the authentication |
 | PUT | `/dev/subscription` | Dev only: switch tier |
 | GET, POST | `/profiles` | List / create child profiles |
 | GET, PUT, DELETE | `/profiles/:id` | Read / replace / delete a profile |
@@ -174,6 +176,17 @@ A series is a story with `format: story_arc_part` and a row in `story_arcs` (len
 - Limits: a series needs a paid tier (**402** `upgrade_required`, feature `story_arc`); the number of unfinished series is capped (Family 1, Family+ 3; **402** `limit_reached`, feature `story_arc`, `limit`). `GET /entitlements` shows `limits.activeArcs` and `activeArcsUsed`. Parts have no quota of their own. Finishing a series frees its slot.
 - Heroes: a series needs saved profiles (inline `childProfile` is rejected). If its profiles are deleted, the next part answers **409** `heroes_missing`. Two simultaneous requests for the same part: one wins, the other gets **409** `part_conflict`. A failed part (Claude, safety) changes nothing and can be retried.
 - Reading progress: the app sends `PATCH /stories/:id {"readPart": n}` when a part is finished; `readProgress` becomes the share of read parts.
+
+### Subscriptions
+
+Four auto-renewable products in one subscription group: `family_monthly`, `family_yearly`, `family_plus_monthly`, `family_plus_yearly` (`SUBSCRIPTION_PRODUCT_TIERS` in `packages/shared`, the same ids in `ios/StoreKit/Skazochnik.storekit` and in App Store Connect). They have no introductory offer: the 7-day Family trial is ours (server side, no card).
+
+- The app buys with StoreKit 2 and sends the signed transactions (`jwsRepresentation`) to `POST /v1/subscription/sync` after a purchase, on restore and on every launch; Apple's server notifications keep the row current afterwards. The purchase carries the user id as `appAccountToken`, so a notification for a subscription bought on another device is matched to the account.
+- `apps/api/src/services/appStore.ts` verifies every JWS itself: ES256 signature with the leaf of the `x5c` chain, chain up to **Apple Root CA - G3** (embedded), validity checked at the signing time, and Apple's marker extensions on the leaf and intermediate certificates (a developer certificate from the same root must not pass as an App Store signature). `bundleId` must equal `APPLE_BUNDLE_ID`, the product must be one of ours; without `APPLE_BUNDLE_ID` both endpoints answer **503** `purchases_unavailable`.
+- `subscriptions` rows are keyed by `original_transaction_id` and follow Apple's status: `active`, `grace_period` (access until `grace_period_expires_at`), `billing_retry` and `expired` (no access), `revoked` (refund). An event older than the newest one applied (`last_signed_at`) is ignored. A notification for a subscription of an unknown account is acknowledged (200) and waits until the app syncs it.
+- Restoring on another account moves the subscription to the caller: a signed transaction only reaches a device signed in to the Apple ID that owns it.
+- In App Store Connect set the production and sandbox server URL to `https://<api host>/v1/webhooks/apple` (Server Notifications version 2). Sandbox purchases (TestFlight, App Review) are accepted by the production server.
+- Local check without the App Store: `cd apps/api && npm test` signs transactions with a throw-away certificate chain from `apps/api/test/fixtures/appstore` and covers sync, renewal, upgrade, grace period, refund and forged signatures.
 
 ### Premium narration
 

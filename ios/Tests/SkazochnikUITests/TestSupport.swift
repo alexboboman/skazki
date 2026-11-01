@@ -99,3 +99,56 @@ enum Sample {
         return AppModel(client: client, repository: LibraryRepository(client: client, cache: cache), defaults: defaults)
     }
 }
+
+/// The App Store without the App Store: fixed offers, and whatever the test sets up for buying and restoring.
+final class FakeStorefront: Storefront, @unchecked Sendable {
+    var outcome: PurchaseOutcome = .cancelled
+    var purchaseError: Error?
+    var offersError: Error?
+    var held: [StoreTransaction] = []
+    var restored: [StoreTransaction] = []
+    var incoming: [StoreTransaction] = []
+    private(set) var accountToken: UUID?
+    private(set) var purchasedID: String?
+
+    func offers() async throws -> [StoreOffer] {
+        if let offersError { throw offersError }
+        func offer(_ id: String, _ price: Decimal, _ text: String, monthly: String) -> StoreOffer {
+            StoreOffer(product: SubscriptionCatalog.product(id: id)!, displayPrice: text, monthlyPrice: monthly, price: price)
+        }
+        return [
+            offer("family_monthly", 6.99, "$6.99", monthly: "$6.99"),
+            offer("family_yearly", 49.99, "$49.99", monthly: "$4.17"),
+            offer("family_plus_monthly", 9.99, "$9.99", monthly: "$9.99"),
+            offer("family_plus_yearly", 69.99, "$69.99", monthly: "$5.83"),
+        ]
+    }
+
+    func purchase(_ productID: String, accountToken: UUID?) async throws -> PurchaseOutcome {
+        purchasedID = productID
+        self.accountToken = accountToken
+        if let purchaseError { throw purchaseError }
+        return outcome
+    }
+
+    func currentTransactions() async -> [StoreTransaction] { held }
+    func restore() async throws -> [StoreTransaction] { restored }
+
+    func updates() -> AsyncStream<StoreTransaction> {
+        let pending = incoming
+        return AsyncStream { continuation in
+            pending.forEach { continuation.yield($0) }
+            continuation.finish()
+        }
+    }
+}
+
+/// Counts how many times the App Store was told a transaction was delivered.
+final class FinishCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    func transaction(_ jws: String) -> StoreTransaction {
+        StoreTransaction(jws: jws) { [self] in lock.lock(); value += 1; lock.unlock() }
+    }
+}

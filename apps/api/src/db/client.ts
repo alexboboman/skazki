@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
@@ -28,6 +29,11 @@ export async function createDb(options: { databaseUrl?: string; dataDir?: string
   }
 
   const dataDir = options.dataDir ?? process.env.PGLITE_DIR ?? path.resolve("apps/api/.data/pglite");
+  // PGlite creates the database folder but not its parents, so a fresh checkout has no apps/api/.data yet.
+  if (!dataDir.includes("://")) {
+    await mkdir(path.dirname(dataDir), { recursive: true });
+  }
+
   const db = drizzlePglite(new PGlite(dataDir), { schema });
   await migratePglite(db, { migrationsFolder });
   return db;

@@ -13,7 +13,7 @@ export const users = pgTable("users", {
   updatedAt: updatedAt()
 });
 
-/** Written by the StoreKit / App Store Server Notifications integration (not built yet) and by the dev endpoint. */
+/** Written by the StoreKit sync endpoint, App Store Server Notifications and the dev endpoint. */
 export const subscriptions = pgTable(
   "subscriptions",
   {
@@ -27,6 +27,10 @@ export const subscriptions = pgTable(
     originalTransactionId: text("original_transaction_id").unique(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     gracePeriodExpiresAt: timestamp("grace_period_expires_at", { withTimezone: true }),
+    /** "Sandbox" or "Production", as reported by Apple. */
+    environment: text("environment"),
+    /** Apple's signing time of the newest transaction applied; older notifications arriving late are ignored. */
+    lastSignedAt: timestamp("last_signed_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt()
   },

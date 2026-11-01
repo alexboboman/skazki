@@ -51,8 +51,7 @@ struct SeriesFlow: View {
             case .reading(let readable):
                 reader(readable)
             case .paywall(let info):
-                // Purchasing arrives with StoreKit; both buttons just go back to the series for now.
-                PaywallView(hero: hero, reason: info, onTrial: { stage = .overview }, onFree: { stage = .overview })
+                PaywallView(hero: hero, reason: info, onPurchased: { stage = .overview }, onFree: { stage = .overview })
             }
         }
         .animation(.easeOut(duration: 0.35), value: stage)

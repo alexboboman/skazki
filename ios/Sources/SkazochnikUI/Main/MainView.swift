@@ -13,6 +13,7 @@ public struct MainView: View {
     }
 
     @StateObject private var app: AppModel
+    @EnvironmentObject private var subscriptions: SubscriptionStore
     private let onStartOver: () -> Void
     @State private var tab: MainTab = .home
     @State private var overlay: Overlay?
@@ -70,6 +71,8 @@ public struct MainView: View {
         .animation(.easeOut(duration: 0.2), value: notice)
         .preferredColorScheme(.dark)
         .task { await app.refresh() }
+        // A purchase (or a renewal seen by the App Store) changes the plan while the app is open.
+        .onReceive(subscriptions.$entitlements.compactMap { $0 }) { app.applyEntitlements($0) }
     }
 
     @ViewBuilder private var overlayView: some View {

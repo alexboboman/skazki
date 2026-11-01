@@ -224,6 +224,24 @@ export interface UpdateStoryRequest {
 
 export type Tier = "free" | "family" | "family_plus";
 
+/**
+ * App Store product ids of the auto-renewable subscriptions (one subscription group, so a user holds one at a time)
+ * and the tier each one unlocks. The same ids are created in App Store Connect and in the app's StoreKit file.
+ */
+export const SUBSCRIPTION_PRODUCT_TIERS = {
+  family_monthly: "family",
+  family_yearly: "family",
+  family_plus_monthly: "family_plus",
+  family_plus_yearly: "family_plus"
+} as const satisfies Record<string, Exclude<Tier, "free">>;
+
+export type SubscriptionProductId = keyof typeof SUBSCRIPTION_PRODUCT_TIERS;
+
+/** POST /v1/subscription/sync: signed transactions (`jwsRepresentation`) from StoreKit 2; answered with EntitlementsResponse. */
+export interface SyncSubscriptionRequest {
+  transactions: string[];
+}
+
 export type QuotaFeature = "classic_story" | "quick_story";
 
 export type QuotaPeriod = "day" | "week" | "month";

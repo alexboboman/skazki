@@ -15,6 +15,7 @@ import type {
 } from "../../../packages/shared/src/index.js";
 import type { Db } from "./db/client.js";
 import type { TextGenerator } from "./services/anthropicTextGenerator.js";
+import { createAppStoreVerifier, type AppStoreVerifier } from "./services/appStore.js";
 import { createAuthService, type AuthEnv } from "./services/auth.js";
 import { EntitlementService, type ReserveResult } from "./services/entitlements.js";
 import { DEFAULT_WORLD, WORLD_PROMPTS, wordsForMinutes } from "./services/catalog.js";
@@ -23,6 +24,7 @@ import { NarrationService } from "./services/narrationService.js";
 import type { SpeechGenerator } from "./services/speechGenerator.js";
 import type { MediaStore } from "./services/mediaStore.js";
 import { ProfileLimitError, ProfileService } from "./services/profileService.js";
+import { PurchasesUnavailableError, SubscriptionService } from "./services/subscriptionService.js";
 import { PartConflictError, StoryService } from "./services/storyService.js";
 import type { SafetyChecker } from "./services/safetyChecker.js";
 import { runStoryPipeline, UnsafeStoryError, type StoryPipelineResult } from "./services/storyPipeline.js";
@@ -37,6 +39,10 @@ export interface AppDeps {
   safetyChecker?: SafetyChecker;
   /** Absent without a Phygital+ key: premium narration is then unavailable (503). */
   speechGenerator?: SpeechGenerator;
+  /** Checks App Store signatures; defaults to the real chain check against Apple Root CA - G3. */
+  appStoreVerifier?: AppStoreVerifier;
+  /** Bundle id the purchases must belong to; defaults to APPLE_BUNDLE_ID. Without it purchases are unavailable (503). */
+  appleBundleId?: string;
   /** How long POST /v1/stories/:id/audio waits for the narration before answering 202 (default 2.5 s). */
   narrationWaitMs?: number;
 }
@@ -49,6 +55,11 @@ export function createApp(deps: AppDeps) {
   const profiles = new ProfileService(deps.db);
   const stories = new StoryService(deps.db);
   const entitlements = new EntitlementService(deps.db);
+  const purchases = new SubscriptionService(
+    deps.db,
+    deps.appStoreVerifier ?? createAppStoreVerifier(),
+    deps.appleBundleId ?? process.env.APPLE_BUNDLE_ID
+  );
   const narration = deps.speechGenerator && new NarrationService(stories, deps.mediaStore, deps.speechGenerator, deps.narrationWaitMs);
 
   function pipelineDeps() {
@@ -149,6 +160,54 @@ export function createApp(deps: AppDeps) {
   // --- Entitlements ---
 
   app.get("/v1/entitlements", auth.requireAuth, async (c) => c.json(await entitlements.snapshot(c.get("userId"))));
+
+  // --- Subscriptions (StoreKit 2) ---
+
+  // The app sends the signed transactions it holds after a purchase, on restore and on launch; the tier follows.
+  app.post("/v1/subscription/sync", auth.requireAuth, async (c) => {
+    const body = await safeJson(c.req);
+    const transactions = isRecord(body) ? body.transactions : undefined;
+
+    if (!Array.isArray(transactions) || transactions.length > 20 || !transactions.every((item) => typeof item === "string")) {
+      return errorResponse(c, 400, "invalid_request", "transactions must be an array of up to 20 signed transactions.");
+    }
+
+    try {
+      const applied = await purchases.sync(c.get("userId"), transactions as string[]);
+
+      if (transactions.length > 0 && applied === 0) {
+        return errorResponse(c, 400, "invalid_transaction", "None of the transactions could be verified.");
+      }
+    } catch (error) {
+      if (error instanceof PurchasesUnavailableError) {
+        return errorResponse(c, 503, "purchases_unavailable", "Purchases are not configured on the server.");
+      }
+      throw error;
+    }
+
+    return c.json(await entitlements.snapshot(c.get("userId")));
+  });
+
+  // App Store Server Notifications v2. Apple signs the payload, so the signature is the authentication.
+  app.post("/v1/webhooks/apple", async (c) => {
+    const body = await safeJson(c.req);
+    const signedPayload = isRecord(body) ? body.signedPayload : undefined;
+
+    if (typeof signedPayload !== "string" || signedPayload.length === 0) {
+      return errorResponse(c, 400, "invalid_request", "signedPayload is required.");
+    }
+
+    try {
+      await purchases.handleNotification(signedPayload);
+    } catch (error) {
+      if (error instanceof PurchasesUnavailableError) {
+        return errorResponse(c, 503, "purchases_unavailable", "Purchases are not configured on the server.");
+      }
+      return errorResponse(c, 400, "invalid_notification", "Notification could not be verified.");
+    }
+
+    return c.json({ ok: true });
+  });
 
   // Postgres rejects malformed uuids with an error, so answer 404 before touching the database.
   app.use("/v1/profiles/:id", uuidGuard("profile_not_found", "Profile not found."));

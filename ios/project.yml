@@ -42,3 +42,12 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+schemes:
+  Skazochnik:
+    build:
+      targets:
+        Skazochnik: all
+    run:
+      config: Debug
+      # Local purchases in the Simulator without App Store Connect: prices and product ids of the paywall.
+      storeKitConfiguration: StoreKit/Skazochnik.storekit

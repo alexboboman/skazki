@@ -103,11 +103,17 @@ private struct CreateSeriesPreview: View {
         return StoryGenerationModel(client: client, request: GenerateStoryRequest(profileIds: ["p"]), stepDelay: .seconds(3600))
     }
 
-    @Test func rendersStoryScreens() throws {
+    @Test func rendersStoryScreens() async throws {
         try render("10-generate") { GenerateView(model: generationModel(), hero: hero, onPaywall: { _ in }, onClose: {}) }
         try render("11-reveal") { RevealView(story: story, hero: hero, onRead: {}) }
         try render("12-reading") { ReadingView(story: story, hero: hero, mediaURL: { _ in nil }, onBack: {}, onUpsell: {}) }
-        try render("13-paywall") { PaywallView(hero: hero, onTrial: {}, onFree: {}) }
+        let store = SubscriptionStore(client: nil, storefront: FakeStorefront())
+        await store.load()
+        try render("13-paywall") { PaywallView(hero: hero, onPurchased: {}, onFree: {}).environmentObject(store) }
+        try render("13-paywall-plus") {
+            PaywallView(hero: hero, reason: PaywallInfo(code: .upgradeRequired, message: "", feature: "premium_voice", tier: .family), onPurchased: {}, onFree: {})
+                .environmentObject(store)
+        }
         try render("14-done") { DoneView(hero: hero, trial: true, onHome: {}) }
     }
 

@@ -287,7 +287,7 @@ Claude должен возвращать структурированные ма
 - [ ] Спроектировать entitlement matrix и usage limits
 - [ ] Выбрать analytics provider и AppsFlyer setup
 - [ ] Регистрация Apple Developer account, настройка TestFlight
-- [ ] Настройка StoreKit sandbox
+- [ ] Настройка StoreKit sandbox (локальный файл `ios/StoreKit/Skazochnik.storekit` есть; продукты, песочница и URL уведомлений в App Store Connect не заведены)
 
 ### Phase 1 — MVP (6–8 нед)
 - [x] Backend: Auth (Apple Sign In + JWT) — `POST /v1/auth/apple` верифицирует identity token по JWKS Apple и выдаёт свой JWT; проверен только dev-вход, с реальным токеном Apple ещё не прогонялся
@@ -295,13 +295,13 @@ Claude должен возвращать структурированные ма
 - [ ] Backend: Story generation worker (Claude + Image) как step-based pipeline — шаги `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images` реализованы inline в API (`apps/api/src/services/storyPipeline.ts`), осталось вынести в BullMQ-воркер (сознательно отложено: для беты синхронной генерации достаточно, переход на jobs меняет контракт для клиента), добавить `build_prompt`, `persist_story_and_media`
 - [x] Backend: Profiles + библиотека историй (Drizzle, Postgres/PGlite) — `/v1/profiles`, `/v1/stories`, лимит 5 профилей, тарифные лимиты придут с Entitlement Service
 - [ ] Backend: Media Service (`media_assets`, R2, variants) — таблица `media_assets` есть (картинки и аудио, файлы png/webp/jpg/svg/mp3/wav/m4a), WebP-сжатие картинок сделано; `MediaStore` пока локальная папка (`apps/api/.media`) и `GET /v1/media/:fileName`, R2 и variants впереди
-- [ ] Backend: StoreKit 2 webhook integration + App Store Server Notifications v2
+- [x] Backend: StoreKit 2 + App Store Server Notifications v2 — `POST /v1/subscription/sync` (подписанные транзакции из приложения) и `POST /v1/webhooks/apple`; подпись проверяется своим кодом до Apple Root CA G3 (`appStore.ts`), статусы и идемпотентность в `subscriptionService.ts`. Не сделано: Server API (запрос статуса у Apple), App Attest, очередь повторов
 - [ ] Backend: Analytics Service для server-side событий
 - [x] iOS: Онбординг + создание профиля ребёнка — экраны и API-клиент в `ios/`, проверено в симуляторе iPhone 16 Pro (Xcode 16.4)
 - [x] iOS: Экран генерации сказки (Quick Story) — экран «Создаём сказку», путь первой сказки и экран «Сочинить» (герои, формат, тема, мир, длина)
 - [x] iOS: Reading Mode (текст + иллюстрации) — мораль, финальная фраза, размер текста; тёмный/светлый режим по времени суток и закладка впереди
 - [x] iOS: Библиотека историй — вкладки «Сегодня», «Сказки», «Дети», избранное, прогресс, поиск, удаление, редактирование профиля, офлайн-кэш
-- [ ] iOS: Пейволл + подписка — экран пейволла и обработка 402 сделаны (в том числе для серий), покупки StoreKit 2 нет
+- [x] iOS: Пейволл + подписка — StoreKit 2 (`SubscriptionStore`, `StoreKitStorefront`): Family и Family+, год и месяц, цены из магазина, покупка, restore, `Transaction.updates`, синхронизация при запуске; на живой StoreKit в симуляторе не прогонялось (нужен запуск из Xcode со схемой, где подключён `Skazochnik.storekit`)
 - [ ] iOS: Analytics SDK + AppsFlyer + ATT prompt timing
 - [ ] TestFlight beta (20–50 пользователей)
 
@@ -443,4 +443,8 @@ Entitlement Service остаётся source of truth: даже если клие
 | Озвучка асинхронна: 202 `processing` и опрос раз в ~5 с | Часть озвучивается ~75 с, запрос не должен висеть |
 | Озвучка режется на куски до 600 символов и склеивается (ID3 удаляется) | Время растёт линейно с длиной текста, параллельные куски быстрее |
 | Один файл озвучки на часть, хранится в `media_assets` и в `Caches/narration` | Повторное прослушивание мгновенное и офлайн |
+| Подписки: приложение отдаёт серверу подписанные транзакции StoreKit 2, сервер проверяет подпись Apple сам (цепочка до Apple Root CA G3 + маркерные OID) | Источник истины по тарифу на сервере; не нужен Server API и ключи Apple для старта |
+| Тестовый триал остаётся серверным, у продуктов Apple нет introductory offer | Триал без карты по PRD; два триала подряд не нужны |
+| Во время billing retry без grace period доступа нет; во время grace period есть | Так ведёт себя App Store; PRD это допускает |
+| Restore переносит подписку на текущий аккаунт | Подписанная транзакция приходит только с устройства Apple ID-владельца; иначе потерянный гостевой аккаунт навсегда держал бы подписку |
 | Ключи только в `.env` (в git не попадает), сервер сам читает `.env` | Ключи нельзя печатать в чат и коммитить; ключи, вставленные в чат, лучше перевыпустить |

@@ -83,8 +83,7 @@ struct CreateFlow: View {
                     premiumVoice: app.premiumVoice(for: story)
                 )
             case .paywall(let info, let main):
-                // Purchasing arrives with StoreKit; both buttons just go back to the form for now.
-                PaywallView(hero: HeroInfo(profile: main), reason: info, onTrial: { stage = .form }, onFree: onClose)
+                PaywallView(hero: HeroInfo(profile: main), reason: info, onPurchased: { stage = .form }, onFree: onClose)
             }
         }
         .animation(.easeOut(duration: 0.35), value: stage)

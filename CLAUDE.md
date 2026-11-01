@@ -6,7 +6,7 @@ iPhone-приложение (iPad позже), которое генерируе
 - Backend: Node.js 22 + TypeScript, Hono (`apps/api`), общие типы в `packages/shared`
 - Текст сказок: Anthropic Claude
 - iOS-приложение на SwiftUI, сначала iPhone, iPad позже (папка `ios/`: Swift Package + XcodeGen, подробности в `ios/README.md`; сборка в Xcode 16+, тесты через `swift test`), иллюстрации, аудио, подписки (StoreKit 2)
-- Реализованы: генерация текста (Claude) и картинок (Phygital+ или OpenAI), JWT-авторизация (Apple Sign In + dev-вход), профили детей и библиотека историй (Drizzle + Postgres/PGlite), safety-проверка текста, тарифные лимиты и квоты (entitlements, ответ 402 для пейволла). Серии (story_arc_part, части по запросу), чтение вслух на устройстве (AVSpeechSynthesizer) и премиум-озвучка Family+ (Gemini TTS через Phygital+, асинхронно). Видео, интеграция StoreKit, очередь BullMQ и аналитика описаны лишь в документах
+- Реализованы: генерация текста (Claude) и картинок (Phygital+ или OpenAI), JWT-авторизация (Apple Sign In + dev-вход), профили детей и библиотека историй (Drizzle + Postgres/PGlite), safety-проверка текста, тарифные лимиты и квоты (entitlements, ответ 402 для пейволла). Серии (story_arc_part, части по запросу), чтение вслух на устройстве (AVSpeechSynthesizer) и премиум-озвучка Family+ (Gemini TTS через Phygital+, асинхронно). Подписки: StoreKit 2 в приложении, проверка подписанных транзакций Apple и серверные уведомления на бэкенде (`/v1/subscription/sync`, `/v1/webhooks/apple`; в App Store Connect продукты и URL ещё не заведены). Видео, очередь BullMQ и аналитика описаны лишь в документах
 
 ## Команды
 ```bash
