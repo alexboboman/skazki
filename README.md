@@ -7,13 +7,13 @@ Early prototype for the "Сказочник" product.
 The project now has a small API scaffold:
 
 - `apps/api` — Hono API prototype.
-- `ios/` — iPhone app in SwiftUI (iPad later); onboarding and the API client are built, see `ios/README.md`.
+- `ios/` — iPhone app in SwiftUI (iPad later): onboarding, library, create screen, series, reading aloud; see `ios/README.md`.
 - `packages/shared` — shared request/response contracts.
 - `scripts/test_story.js` — old one-off Claude prompt spike.
 - `docs/product` — PRD and technical architecture.
 - `docs/stories` — generated story samples.
 
-The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (Phygital+ `gemini-image`, OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Audio, video, the StoreKit integration, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
+The API has JWT auth, child profiles, a story library (Postgres via Drizzle) and generates text (Claude) and illustrations (Phygital+ `gemini-image`, OpenAI `gpt-image-1`, or an offline mock) in one step-based pipeline: `generate_text` → `safety_check` → `parse_media_prompts` → `generate_images`. Entitlements (tier limits and quotas) are enforced server-side. Series of stories and premium narration (Family+) are built (see the Series and Premium narration sections). Video, the StoreKit integration, analytics and attribution are represented in the contracts/architecture docs, but are not implemented as runtime services yet.
 
 Data and auth notes:
 
@@ -184,6 +184,15 @@ The app reads stories aloud with the system voice for everyone (on the device, f
 - Time: voicing takes about 8 seconds per 100 characters, so the text is cut into pieces of at most 600 characters on paragraph borders and the pieces are voiced side by side (6 at a time), then joined into one MP3. A 3.6-minute part took 76 seconds. That is too long for one request, so the endpoint waits 2.5 s and otherwise answers **202** `{ "status": "processing" }`; the client asks again about every 5 s until it gets **200** with the asset (`type: "audio"`, `url`, `contentType: "audio/mpeg"`). Asking again never starts a second generation. A failed attempt is reported (**502** `audio_generation_failed`) to the next request, then the part can be retried.
 - Stored once: the file is saved like a picture and attached to the part (`media_assets`, `type = audio`), so it also shows up in `GET /stories/:id` under `parts[].media`, and every device gets the same file. Audio is never used as a cover.
 - Plan: Family+ only (**402** `upgrade_required`, feature `premium_voice`); `GET /entitlements` shows `limits.premiumVoice`. The cost per minute at Phygital+ is not known yet, so it is not counted in `usage`.
+
+### Dev recipes
+
+- Real providers: put `ANTHROPIC_API_KEY` and `PHYGITAL_API_KEY` in the git-ignored `.env`; never print them in chat or commit them (keys that were pasted into a chat should be rotated). `.env.example` lists every variable.
+- No keys: `TEXT_PROVIDER=mock IMAGE_PROVIDER=mock npm run dev:api` (premium narration then answers 503).
+- A throwaway database and media folder for a test run: `PGLITE_DIR=/tmp/skz-db MEDIA_DIR=/tmp/skz-media npm run dev:api`.
+- Try a paid tier: `PUT /v1/dev/subscription` with `{ "tier": "family_plus" }` and the user's bearer token (needs `AUTH_DEV_LOGIN=1`); `TRIAL_DAYS=0` starts new accounts on Free. The trial gives Family, so premium narration stays locked during it.
+- Phygital+ has a public model catalog (`GET https://dev.phygital.plus/api/models`, no key). The macOS system Python lacks root certificates; use Node or `curl` for HTTPS calls.
+- Phygital+ speed to remember: a picture ~13 s, speech ~8 s per 100 characters.
 
 ## Verify
 
